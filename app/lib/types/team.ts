@@ -1,5 +1,5 @@
 import { sql } from "@/lib/sql";
-import { User } from "../types";
+import { User } from "./user";
 import { generateKeys } from "../signing";
 
 export type Team = {

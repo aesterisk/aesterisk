@@ -49,17 +49,6 @@ export const plans: Plan[] = [
 	},
 ];
 
-export type User = {
-	id: number;
-	account: number;
-	team: number;
-	joinedAt: number;
-	owner: boolean;
-	roles: number[];
-	publicKey: string;
-	privateKey: string;
-};
-
 export type Role = {
 	id: number;
 	name: string;
