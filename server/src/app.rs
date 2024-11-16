@@ -192,14 +192,6 @@ async fn handle_auth(auth_packet: ASAuthPacket, addr: SocketAddr, channel_map: C
             client.public_key = Some(public_key);
         }
         _ => {
-            client.tx.unbounded_send(
-                Message::text(
-                    SAAuthResponsePacket {
-                        success: false,
-                    }.to_string().expect("SAAuthResponsePacket should be some")
-                )
-            ).expect("failed to send message");
-
             client.tx.close_channel();
         }
     }
