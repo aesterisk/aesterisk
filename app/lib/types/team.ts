@@ -1,5 +1,6 @@
 import { sql } from "@/lib/sql";
 import { User } from "../types";
+import { generateKeys } from "../signing";
 
 export type Team = {
 	id: number;
@@ -15,6 +16,9 @@ export type UserTeam = {
 	team: Team;
 	joinedAt: number;
 	owner: boolean;
+	publicKey: string;
+	privateKey: string;
+	// todo: roles
 };
 
 function idToPlan(plan: 0 | 1 | 2 | 3): "free" | "plus" | "pro" | "enterprise" {
@@ -64,7 +68,27 @@ export async function getTeamByPath(path: string): Promise<Team | null> {
 }
 
 export async function addAccountToTeam(account: number, team: number, owner: boolean): Promise<User> {
-	const rows = await sql`INSERT INTO aesterisk.users (user_account, user_team, user_joined_at, user_owner) VALUES (${account}, ${team}, CURRENT_TIMESTAMP, ${owner}) RETURNING user_id, extract(epoch from user_joined_at) as user_joined_at`;
+	const { publicKey, privateKey } = await generateKeys();
+
+	const rows = await sql`
+		INSERT INTO aesterisk.users (
+			user_account,
+			user_team,
+			user_joined_at,
+			user_owner,
+			user_public_key,
+			user_private_key
+		) VALUES (
+			${account},
+			${team},
+			CURRENT_TIMESTAMP,
+			${owner},
+			${publicKey},
+			${privateKey}
+		) RETURNING
+			user_id,
+			extract(epoch from user_joined_at) as user_joined_at
+	`;
 
 	if(rows.length !== 1) {
 		throw new Error("User not added to team"); // todo: add more context
@@ -77,6 +101,8 @@ export async function addAccountToTeam(account: number, team: number, owner: boo
 		owner,
 		roles: [],
 		joinedAt: Number(rows[0].user_joined_at),
+		publicKey,
+		privateKey,
 	} satisfies User;
 }
 

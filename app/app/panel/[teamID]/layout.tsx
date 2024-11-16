@@ -28,7 +28,7 @@ export default async function Layout({
 	}
 
 	return (
-		<SocketProvider userID={team.user} publicKey={account.publicKey} privateKey={account.privateKey}>
+		<SocketProvider userID={team.user} publicKey={team.publicKey} privateKey={team.privateKey}>
 			<div className="h-screen w-full md:grid-cols-[220px_1fr] lg:grid-cols-[280px_1fr] overflow-auto">
 				<Sidebar>
 					<AesteriskSidebar />

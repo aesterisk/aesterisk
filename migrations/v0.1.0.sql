@@ -100,8 +100,6 @@ CREATE TABLE aesterisk.accounts (
 	account_created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
 	account_last_active_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
 	account_personal_team INTEGER NOT NULL,
-	account_public_key TEXT NOT NULL,
-	account_private_key TEXT NOT NULL,
 	CONSTRAINT fk_teams FOREIGN KEY(account_personal_team) REFERENCES aesterisk.teams(team_id)
 );
 
@@ -113,6 +111,8 @@ CREATE TABLE aesterisk.users (
 	user_team INTEGER NOT NULL,
 	user_joined_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
 	user_owner BOOLEAN NOT NULL,
+	user_public_key TEXT NOT NULL,
+	user_private_key TEXT NOT NULL,
 	CONSTRAINT fk_accounts FOREIGN KEY(user_account) REFERENCES aesterisk.accounts(account_id),
 	CONSTRAINT fk_teams FOREIGN KEY(user_team) REFERENCES aesterisk.teams(team_id)
 );

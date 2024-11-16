@@ -171,7 +171,6 @@ async fn handle_auth(auth_packet: ASAuthPacket, addr: SocketAddr, channel_map: C
 
         let public_key = auth_packet.public_key.into_bytes();
 
-        // TODO: make public_key/private_key on aesterisk.users instead of aesterisk.accounts
         // TODO: implement db check for user_id and public_key
 
         client.tx.unbounded_send(

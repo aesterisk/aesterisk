@@ -56,6 +56,8 @@ export type User = {
 	joinedAt: number;
 	owner: boolean;
 	roles: number[];
+	publicKey: string;
+	privateKey: string;
 };
 
 export type Role = {

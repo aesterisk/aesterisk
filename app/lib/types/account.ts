@@ -1,6 +1,5 @@
 import { createPersonalTeam, addAccountToTeam, UserTeam, fromDB as teamFromDB } from "@/lib/types/team";
 import { sql } from "@/lib/sql";
-import { generateKeys } from "../signing";
 
 export type Account = {
 	id: number;
@@ -12,8 +11,6 @@ export type Account = {
 	lastActive: number;
 	personalTeam: UserTeam;
 	otherTeams: UserTeam[];
-	publicKey: string;
-	privateKey: string;
 };
 
 export async function createAccount(
@@ -23,8 +20,6 @@ export async function createAccount(
 	lastName: string | null,
 	image: string | null
 ): Promise<Account> {
-	const { publicKey, privateKey } = await generateKeys();
-
 	const team = await createPersonalTeam();
 	const rows = await sql`
 		INSERT INTO aesterisk.accounts (
@@ -35,9 +30,7 @@ export async function createAccount(
 			account_avatar,
 			account_created_at,
 			account_last_active_at,
-			account_personal_team,
-			account_public_key,
-			account_private_key
+			account_personal_team
 		) VALUES (
 			${ghId},
 			${email},
@@ -46,9 +39,7 @@ export async function createAccount(
 			${image},
 			CURRENT_TIMESTAMP,
 			CURRENT_TIMESTAMP,
-			${team.id},
-			${publicKey},
-			${privateKey}
+			${team.id}
 		) RETURNING
 			account_id,
 			account_gh_id,
@@ -80,10 +71,10 @@ export async function createAccount(
 			team,
 			owner: true,
 			joinedAt: Number(rows[0].account_created_at),
+			publicKey: user.publicKey,
+			privateKey: user.privateKey,
 		},
 		otherTeams: [],
-		publicKey: rows[0].account_public_key as string,
-		privateKey: rows[0].account_private_key as string,
 	} satisfies Account;
 }
 
@@ -93,6 +84,8 @@ export function userTeamFromDB(row: Record<string, unknown>): UserTeam {
 		team: teamFromDB(row),
 		owner: row.user_owner as boolean,
 		joinedAt: Number(row.user_joined_at),
+		publicKey: row.user_public_key as string,
+		privateKey: row.user_private_key as string,
 	} satisfies UserTeam;
 }
 
@@ -114,8 +107,6 @@ export function fromDB(rows: Record<string, unknown>[]): Account {
 		lastActive: Number(rows[0].account_last_active_at),
 		personalTeam: userTeamFromDB(personalTeam!),
 		otherTeams: otherTeams.map(userTeamFromDB),
-		publicKey: rows[0].account_public_key as string,
-		privateKey: rows[0].account_private_key as string,
 	} satisfies Account;
 }
 
@@ -127,8 +118,6 @@ export async function getAccountByGhId(ghId: string): Promise<Account | null> {
 			account_first_name,
 			account_last_name,
 			account_avatar,
-			account_public_key,
-			account_private_key,
 			extract(epoch from account_created_at) as account_created_at,
 			extract(epoch from account_last_active_at) as account_last_active_at,
 			user_id,

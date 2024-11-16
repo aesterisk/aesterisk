@@ -1,5 +1,5 @@
 import { createEventBus, EventMap } from "@/lib/eventbus";
-import { ASListenPacket, EventType, ID, NodeStatus } from "../types/packets";
+import { EventType, ID, NodeStatus } from "../types/packets";
 import { socketBus } from "./socket";
 
 interface EventsBus extends EventMap {
@@ -10,7 +10,7 @@ export const eventsBus = createEventBus<EventsBus>({
 	onError: (e) => {
 		console.error(e);
 	},
-	preListen: (key, handler) => {
+	preListen: (key) => {
 		if(key === EventType.NodesList) {
 			socketBus.once("connected", () => {
 				socketBus.emit(ID.ASListen, {
