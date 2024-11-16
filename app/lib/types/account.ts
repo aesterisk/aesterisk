@@ -123,6 +123,8 @@ export async function getAccountByGhId(ghId: string): Promise<Account | null> {
 			user_id,
 			extract(epoch from user_joined_at) as user_joined_at,
 			user_owner,
+			user_public_key,
+			user_private_key,
 			team_id,
 			team_path,
 			team_name,
