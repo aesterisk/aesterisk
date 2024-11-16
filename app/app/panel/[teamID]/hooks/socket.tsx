@@ -38,6 +38,8 @@ export const SocketProvider = ({ children, userID, publicKey, privateKey }: Para
 	useEffect(() => {
 		const unsub = socketBus.on("AuthResponse", ({ success }) => {
 			if(success) {
+				setState(SocketState.Connected);
+				socketConnectionTries.current = 0;
 				if(dev()) console.log("[Socket] Authenticated");
 
 				if(sendConnectedToast.current) {
@@ -69,10 +71,6 @@ export const SocketProvider = ({ children, userID, publicKey, privateKey }: Para
 			const ws = new WebSocket("ws://localhost:31306");
 
 			ws.onopen = async() => {
-				setState(SocketState.Connected);
-				if(dev()) console.log("[Socket] Connected");
-
-				socketConnectionTries.current = 0;
 				ws.send(await encryptPacket(ASAuthPacket({
 					user_id: userID,
 					public_key: publicKey,
