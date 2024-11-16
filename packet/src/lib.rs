@@ -48,6 +48,16 @@ impl Packet {
         res.ok()
     }
 
+    pub fn from_value(value: serde_json::Value) -> Option<Self> {
+        let res = serde_json::from_value(value);
+
+        if res.is_err() {
+            println!("W (Packet) Packet deserializing error: {:#?}", res.as_ref().err().expect("Result::err should return Some when Result::is_err returns true"));
+        }
+
+        res.ok()
+    }
+
     pub fn to_string(&self) -> String {
         serde_json::to_string(&self).expect("failed to serialize packet")
     }
