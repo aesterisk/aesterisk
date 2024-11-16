@@ -1,0 +1,139 @@
+# github.com/aesterisk/aesterisk
+
+## aesterisk/app
+
+### Node.js
+/app/node_modules
+
+### Next.js
+/app/.next
+/app/out
+
+### Production
+/app/build
+/app/.vercel
+
+### TypeScript
+/app/*.tsbuildinfo
+/app/next-env.d.ts
+
+### Environment files
+/app/.env*.local
+
+
+## aesterisk/server
+
+### Cargo
+/server/target
+/server/debug
+
+### Rustfmt
+/server/**/*.rs.bk
+
+### MSVC rustc debug info
+/server/*.pdb
+
+
+## aesterisk/packet
+
+### Cargo
+/packet/target
+/packet/debug
+
+### Rustfmt
+/packet/**/*.rs.bk
+
+### MSVC rustc debug info
+/packet/*.pdb
+
+
+## aesterisk/daemon
+
+### Cargo
+/daemon/target
+/daemon/debug
+
+### Rustfmt
+/daemon/**/*.rs.bk
+
+### MSVC rustc debug info
+/daemon/*.pdb
+
+
+## Development
+
+### Docker Volumes
+/docker
+
+
+## Misc
+
+### Editor/IDEs
+.idea/
+.vscode/
+
+### Secrets
+*.pem
+
+### macOS
+
+#### General
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+#### Volume Root Items
+.DocumentRevisions-V100
+.fseventsd
+.Spotlight-V100
+.TemporaryItems
+.Trashes
+.VolumeIcon.icns
+.com.apple.timemachine.donotpresent
+
+#### Remote AFP share
+.AppleDB
+.AppleDesktop
+Network Trash Folder
+Temporary Items
+.apdisk
+
+#### iCloud
+*.icloud
+
+
+### Windows
+
+#### Thumbnails
+Thums.db
+Thumbs.db:encryptable
+ehthumbs.db
+ehthumbs_vista.db
+
+### Dump files
+*.stackdump
+
+#### Folder config file
+[Dd]esktop.ini
+
+#### Recycle Bin
+$RECYCLE.BIN/
+
+
+### Linux
+
+#### General
+*~
+
+#### FUSE
+.fuse_hidden*
+
+#### KDE
+.directory
+
+#### Trash
+.Trash-*
+
+#### NFS
+.nfs*

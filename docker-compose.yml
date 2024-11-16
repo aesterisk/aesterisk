@@ -1,0 +1,23 @@
+services:
+  postgres:
+    image: postgres
+    environment:
+      POSTGRES_PASSWORD: password
+    ports:
+      - '54321:5432'
+    volumes:
+      - ./docker/postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: [ 'CMD-SHELL', 'pg_isready -U postgres' ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+  neon-proxy:
+    image: ghcr.io/timowilhelm/local-neon-http-proxy:main
+    environment:
+      - PG_CONNECTION_STRING=postgresql://postgres:password@postgres:5432/postgres
+    ports:
+      - '54331:4444'
+    depends_on:
+      postgres:
+        condition: service_healthy
