@@ -4,6 +4,7 @@ use futures_channel::mpsc::{self, unbounded};
 use futures_util::{future, pin_mut, stream::{SplitSink, SplitStream}, StreamExt, TryStreamExt};
 use josekit::{jwe::JweHeader, jwk::{alg::rsa::RsaKeyPair, Jwk}, jwt::{self, JwtPayload, JwtPayloadValidator}};
 use lazy_static::lazy_static;
+use reqwest::StatusCode;
 use tokio::net::{TcpListener, TcpStream};
 use tokio_tungstenite::{tungstenite::Message, WebSocketStream};
 
@@ -162,42 +163,45 @@ fn encrypt_packet(packet: Packet, key: &Vec<u8>) -> String {
 async fn handle_auth(auth_packet: ASAuthPacket, addr: SocketAddr, channel_map: ChannelMap) {
     println!("     (App) Auth:\n{:#?}", auth_packet);
 
-    // TODO: remove check when db check is implemented
-    if auth_packet.user_id == 1 {
-        let mut clients = channel_map.lock().expect("failed to gain lock");
-        let client = clients.get_mut(&addr).expect("failed to get client");
+    let res = reqwest::Client::new()
+        .get("http://localhost:3000/api/verify")
+        .query(&[("id", auth_packet.user_id)])
+        .query(&[("key", &auth_packet.public_key)])
+        .send().await.expect("could not reach http://localhost:3000 successfully");
 
-        client.user_id = Some(auth_packet.user_id);
+    let mut clients = channel_map.lock().expect("failed to gain lock");
+    let client = clients.get_mut(&addr).expect("failed to get client");
 
-        let public_key = auth_packet.public_key.into_bytes();
+    match res.status() {
+        StatusCode::OK => {
+            client.user_id = Some(auth_packet.user_id);
 
-        // TODO: implement db check for user_id and public_key
+            let public_key = auth_packet.public_key.into_bytes();
 
-        client.tx.unbounded_send(
-            Message::text(
-                encrypt_packet(
-                    SAAuthResponsePacket {
-                        success: true,
-                    }.to_packet(),
-                    &public_key,
+            client.tx.unbounded_send(
+                Message::text(
+                    encrypt_packet(
+                        SAAuthResponsePacket {
+                            success: true,
+                        }.to_packet(),
+                        &public_key,
+                    )
                 )
-            )
-        ).expect("failed to send message");
+            ).expect("failed to send message");
 
-        client.public_key = Some(public_key);
-    } else {
-        let clients = channel_map.lock().expect("failed to gain lock");
-        let client = clients.get(&addr).expect("failed to get client");
+            client.public_key = Some(public_key);
+        }
+        _ => {
+            client.tx.unbounded_send(
+                Message::text(
+                    SAAuthResponsePacket {
+                        success: false,
+                    }.to_string().expect("SAAuthResponsePacket should be some")
+                )
+            ).expect("failed to send message");
 
-        client.tx.unbounded_send(
-            Message::text(
-                SAAuthResponsePacket {
-                    success: false,
-                }.to_string().expect("SAAuthResponsePacket should be some")
-            )
-        ).expect("failed to send message");
-
-        client.tx.close_channel();
+            client.tx.close_channel();
+        }
     }
 }
 
