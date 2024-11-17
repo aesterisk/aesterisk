@@ -23,6 +23,9 @@
 
 ## aesterisk/server
 
+### Config
+/server/config.toml
+
 ### Cargo
 /server/target
 /server/debug

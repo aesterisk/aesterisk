@@ -2,19 +2,14 @@ use std::{collections::HashMap, net::SocketAddr, sync::{Arc, Mutex}, time::{Dura
 
 use futures_channel::mpsc::{self, unbounded};
 use futures_util::{future, pin_mut, stream::{SplitSink, SplitStream}, StreamExt, TryStreamExt};
-use josekit::{jwe::JweHeader, jwk::{alg::rsa::RsaKeyPair, Jwk}, jwt::{self, JwtPayload, JwtPayloadValidator}};
-use lazy_static::lazy_static;
+use josekit::{jwe::JweHeader, jwk::Jwk, jwt::{self, JwtPayload, JwtPayloadValidator}};
 use reqwest::StatusCode;
 use tokio::net::{TcpListener, TcpStream};
 use tokio_tungstenite::{tungstenite::Message, WebSocketStream};
 
 use packet::{app_server::{auth::ASAuthPacket, listen::ASListenPacket}, server_app::auth_response::SAAuthResponsePacket, Packet, ID};
 
-lazy_static! {
-    static ref PRIVATE_KEY_BYTES: &'static [u8] = include_bytes!("../server.pem");
-    static ref PRIVATE_KEY_RSA: RsaKeyPair = RsaKeyPair::from_pem(&PRIVATE_KEY_BYTES.as_ref()).expect("key could not convert to pem");
-    static ref PRIVATE_KEY_JWK: Jwk = PRIVATE_KEY_RSA.to_jwk_private_key();
-}
+use crate::config::Config;
 
 struct AppSocket {
     tx: Tx,
@@ -26,11 +21,11 @@ type Tx = mpsc::UnboundedSender<Message>;
 type Rx = mpsc::UnboundedReceiver<Message>;
 type ChannelMap = Arc<Mutex<HashMap<SocketAddr, AppSocket>>>;
 
-pub async fn start(addr: &str) {
-    let try_socket = TcpListener::bind(addr).await;
+pub async fn start(config: &'static Config, private_key: &'static Jwk) {
+    let try_socket = TcpListener::bind(&config.sockets.app).await;
     let listener = try_socket.expect("call to bind should be ok");
 
-    println!("     (App) Listening on: {}", addr);
+    println!("     (App) Listening on: {}", &config.sockets.app);
 
     let channel_map = ChannelMap::new(Mutex::new(HashMap::new()));
 
@@ -39,7 +34,7 @@ pub async fn start(addr: &str) {
 
         match conn {
             Ok((stream, addr)) => {
-                tokio::spawn(accept_connection(stream, addr, channel_map.clone()));
+                tokio::spawn(accept_connection(stream, addr, channel_map.clone(), config, private_key));
             }
             Err(e) => {
                 eprintln!("E    (App) Error: {}", e);
@@ -47,14 +42,14 @@ pub async fn start(addr: &str) {
             }
         }
         while let Ok((stream, addr)) = listener.accept().await {
-            tokio::spawn(accept_connection(stream, addr, channel_map.clone()));
+            tokio::spawn(accept_connection(stream, addr, channel_map.clone(), config, private_key));
         }
     }
 
     println!("W    (App) Shutting down server");
 }
 
-async fn accept_connection(raw_stream: TcpStream, addr: SocketAddr, channel_map: ChannelMap) {
+async fn accept_connection(raw_stream: TcpStream, addr: SocketAddr, channel_map: ChannelMap, config: &'static Config, private_key: &'static Jwk) {
     println!("     (App) [{}] Accepted TCP connection", addr);
 
     let stream = tokio_tungstenite::accept_async(raw_stream)
@@ -70,16 +65,16 @@ async fn accept_connection(raw_stream: TcpStream, addr: SocketAddr, channel_map:
         public_key: None,
     });
 
-    handle_client(write, read, addr, rx, channel_map).await;
+    handle_client(write, read, addr, rx, channel_map, config, private_key).await;
 }
 
-async fn handle_client(write: SplitSink<WebSocketStream<TcpStream>, Message>, read: SplitStream<WebSocketStream<TcpStream>>, addr: SocketAddr, rx: Rx, channel_map: ChannelMap) {
+async fn handle_client(write: SplitSink<WebSocketStream<TcpStream>, Message>, read: SplitStream<WebSocketStream<TcpStream>>, addr: SocketAddr, rx: Rx, channel_map: ChannelMap, config: &'static Config, private_key: &'static Jwk) {
     println!("     (App) [{}] Established WebSocket connection", addr);
 
     let incoming = read.try_filter(|msg| future::ready(msg.is_text())).for_each(|msg| async {
         let msg = msg.expect("message should be ok").into_text().expect("message should be of type text");
         println!("     (App) [{}] Got message: {}", addr, msg);
-        tokio::spawn(handle_packet(msg, addr, channel_map.clone()));
+        tokio::spawn(handle_packet(msg, addr, channel_map.clone(), config, private_key));
     });
 
     let outgoing = rx.map(Ok).forward(write);
@@ -107,8 +102,8 @@ async fn handle_client(write: SplitSink<WebSocketStream<TcpStream>, Message>, re
     println!("     (App) {} disconnected", addr);
 }
 
-async fn handle_packet(msg: String, addr: SocketAddr, channel_map: ChannelMap) {
-    let decrypter = josekit::jwe::RSA_OAEP.decrypter_from_pem(&PRIVATE_KEY_BYTES.as_ref()).expect("decrypter should create successfully");
+async fn handle_packet(msg: String, addr: SocketAddr, channel_map: ChannelMap, config: &Config, private_key: &'static Jwk) {
+    let decrypter = josekit::jwe::RSA_OAEP.decrypter_from_jwk(private_key).expect("decrypter should create successfully");
 
     let (payload, _) = jwt::decode_with_decrypter(&msg, &decrypter).expect("should decrypt");
 
@@ -133,7 +128,7 @@ async fn handle_packet(msg: String, addr: SocketAddr, channel_map: ChannelMap) {
 
     match packet.id {
         ID::ASAuth => {
-            handle_auth(ASAuthPacket::parse(packet).expect("ASAuthPacket should be Some"), addr, channel_map).await;
+            handle_auth(ASAuthPacket::parse(packet).expect("ASAuthPacket should be Some"), addr, channel_map, config).await;
         }
         ID::ASListen => {
             handle_listen(ASListenPacket::parse(packet).expect("ASListenPacket should be Some"), channel_map).await;
@@ -160,14 +155,14 @@ fn encrypt_packet(packet: Packet, key: &Vec<u8>) -> String {
     jwt::encode_with_encrypter(&payload, &header, &encrypter).expect("could not encrypt token")
 }
 
-async fn handle_auth(auth_packet: ASAuthPacket, addr: SocketAddr, channel_map: ChannelMap) {
+async fn handle_auth(auth_packet: ASAuthPacket, addr: SocketAddr, channel_map: ChannelMap, config: &Config) {
     println!("     (App) Auth:\n{:#?}", auth_packet);
 
     let res = reqwest::Client::new()
-        .get("http://localhost:3000/api/verify")
+        .get(String::from(&config.server.app_url) + "/api/verify")
         .query(&[("id", auth_packet.user_id)])
         .query(&[("key", &auth_packet.public_key)])
-        .send().await.expect("could not reach http://localhost:3000 successfully");
+        .send().await.expect("could not reach aesterisk/app successfully");
 
     let mut clients = channel_map.lock().expect("failed to gain lock");
     let client = clients.get_mut(&addr).expect("failed to get client");

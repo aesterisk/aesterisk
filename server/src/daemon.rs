@@ -7,6 +7,8 @@ use tokio_tungstenite::{tungstenite::Message, WebSocketStream};
 
 use packet::{daemon_server::{auth::DSAuthPacket, event::DSEventPacket}, Packet, ID};
 
+use crate::config::Config;
+
 struct DaemonSocket {
     tx: Tx,
 }
@@ -15,11 +17,11 @@ type Tx = mpsc::UnboundedSender<Message>;
 type Rx = mpsc::UnboundedReceiver<Message>;
 type ChannelMap = Arc<Mutex<HashMap<SocketAddr, DaemonSocket>>>;
 
-pub async fn start(addr: &str) {
-    let try_socket = TcpListener::bind(addr).await;
+pub async fn start(config: &Config, private_key: &josekit::jwk::Jwk) {
+    let try_socket = TcpListener::bind(&config.sockets.daemon).await;
     let listener = try_socket.expect("call to bind should be ok");
 
-    println!("  (Daemon) Listening on: {}", addr);
+    println!("  (Daemon) Listening on: {}", &config.sockets.daemon);
 
     let channel_map = ChannelMap::new(Mutex::new(HashMap::new()));
 
