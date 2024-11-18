@@ -11,10 +11,14 @@ use packet::{app_server::{auth::ASAuthPacket, listen::ASListenPacket}, server_ap
 
 use crate::config::Config;
 
+struct AppClient {
+    user_id: u32,
+    public_key: Vec<u8>,
+}
+
 struct AppSocket {
     tx: Tx,
-    user_id: Option<u32>,
-    public_key: Option<Vec<u8>>,
+    authed: Option<AppClient>,
 }
 
 type Tx = mpsc::UnboundedSender<Message>;
@@ -61,8 +65,7 @@ async fn accept_connection(raw_stream: TcpStream, addr: SocketAddr, channel_map:
     let (tx, rx) = unbounded();
     channel_map.write().expect("lock should not be poisoned").insert(addr, AppSocket {
         tx,
-        user_id: None,
-        public_key: None,
+        authed: None,
     });
 
     handle_client(write, read, addr, rx, channel_map, config, private_key).await;
@@ -169,8 +172,6 @@ async fn handle_auth(auth_packet: ASAuthPacket, addr: SocketAddr, channel_map: C
 
     match res.status() {
         StatusCode::OK => {
-            client.user_id = Some(auth_packet.user_id);
-
             let public_key = auth_packet.public_key.into_bytes();
 
             client.tx.unbounded_send(
@@ -184,7 +185,10 @@ async fn handle_auth(auth_packet: ASAuthPacket, addr: SocketAddr, channel_map: C
                 )
             ).expect("failed to send message");
 
-            client.public_key = Some(public_key);
+            client.authed = Some(AppClient {
+                user_id: auth_packet.user_id,
+                public_key,
+            });
         }
         _ => {
             client.tx.close_channel();
