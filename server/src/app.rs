@@ -1,4 +1,4 @@
-use std::{collections::HashMap, net::SocketAddr, sync::{Arc, Mutex}, time::{Duration, SystemTime}};
+use std::{collections::HashMap, net::SocketAddr, sync::{Arc, RwLock}, time::{Duration, SystemTime}};
 
 use futures_channel::mpsc::{self, unbounded};
 use futures_util::{future, pin_mut, stream::{SplitSink, SplitStream}, StreamExt, TryStreamExt};
@@ -19,7 +19,7 @@ struct AppSocket {
 
 type Tx = mpsc::UnboundedSender<Message>;
 type Rx = mpsc::UnboundedReceiver<Message>;
-type ChannelMap = Arc<Mutex<HashMap<SocketAddr, AppSocket>>>;
+type ChannelMap = Arc<RwLock<HashMap<SocketAddr, AppSocket>>>;
 
 pub async fn start(config: &'static Config, private_key: &'static Jwk) {
     let try_socket = TcpListener::bind(&config.sockets.app).await;
@@ -27,7 +27,7 @@ pub async fn start(config: &'static Config, private_key: &'static Jwk) {
 
     println!("     (App) Listening on: {}", &config.sockets.app);
 
-    let channel_map = ChannelMap::new(Mutex::new(HashMap::new()));
+    let channel_map = ChannelMap::new(RwLock::new(HashMap::new()));
 
     loop {
         let conn = listener.accept().await;
@@ -59,7 +59,7 @@ async fn accept_connection(raw_stream: TcpStream, addr: SocketAddr, channel_map:
     let (write, read) = stream.split();
 
     let (tx, rx) = unbounded();
-    channel_map.lock().expect("lock should not be poisoned").insert(addr, AppSocket {
+    channel_map.write().expect("lock should not be poisoned").insert(addr, AppSocket {
         tx,
         user_id: None,
         public_key: None,
@@ -98,7 +98,7 @@ async fn handle_client(write: SplitSink<WebSocketStream<TcpStream>, Message>, re
     pin_mut!(incoming, outgoing);
     future::select(incoming, outgoing).await;
 
-    channel_map.lock().expect("failed to gain lock").remove(&addr);
+    channel_map.write().expect("failed to gain lock").remove(&addr);
     println!("     (App) {} disconnected", addr);
 }
 
@@ -164,7 +164,7 @@ async fn handle_auth(auth_packet: ASAuthPacket, addr: SocketAddr, channel_map: C
         .query(&[("key", &auth_packet.public_key)])
         .send().await.expect("could not reach aesterisk/app successfully");
 
-    let mut clients = channel_map.lock().expect("failed to gain lock");
+    let mut clients = channel_map.write().expect("failed to gain lock");
     let client = clients.get_mut(&addr).expect("failed to get client");
 
     match res.status() {
