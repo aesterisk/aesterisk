@@ -73,3 +73,8 @@ pub struct NodeStatus {
 pub enum Event {
     NodesList(Vec<NodeStatus>),
 }
+
+#[derive(serde::Serialize, serde::Deserialize, Debug)]
+pub enum ListenEvent {
+    NodesList(Vec<u32>),
+}

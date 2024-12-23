@@ -1,8 +1,8 @@
-use crate::{Event, Packet, Version, ID};
+use crate::{ListenEvent, Packet, Version, ID};
 
 #[derive(serde::Serialize, serde::Deserialize, Debug)]
 pub struct ASListenPacket {
-    pub events: Vec<Event>,
+    pub events: Vec<ListenEvent>,
 }
 
 impl ASListenPacket {
