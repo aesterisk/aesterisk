@@ -2,7 +2,7 @@ use std::{io, sync::{Arc, Mutex}, thread, time::Duration};
 
 use config::Config;
 use futures_channel::mpsc::{self, unbounded};
-use futures_util::{future, join, pin_mut, StreamExt, TryStreamExt};
+use futures_util::{future, join, pin_mut, FutureExt, StreamExt, TryStreamExt};
 use josekit::jwk::alg::rsa::RsaKeyPair;
 use lazy_static::lazy_static;
 use packet::{daemon_server::auth::DSAuthPacket, server_daemon::{auth_response::SDAuthResponsePacket, listen::SDListenPacket}, Packet, ID};
@@ -78,6 +78,8 @@ async fn main() {
     let server_connector_handle = tokio::spawn(start_server_connector(sender.clone()));
 
     join!(server_connector_handle).0.expect("failed to join handle");
+
+    warn!("Shutting down...");
 }
 
 async fn start_server_connector(sender: Sender) {
@@ -144,7 +146,13 @@ async fn connect_to_server(rx: Rx, sender: Sender) -> Result<(), String> {
     let (write, read) = stream.split();
 
     info!("Authenticating...");
-    tokio::spawn(handle_connection(sender.clone()));
+    tokio::spawn(handle_connection(sender.clone()).then(|res| match res {
+        Ok(()) => future::ready(()),
+        Err(e) => {
+            error!("Error authenticating: {}", e);
+            future::ready(())
+        }
+    }));
 
     let incoming = read.try_filter(|msg| future::ready(msg.is_text())).for_each(|msg| async {
         let msg = match msg {
@@ -164,7 +172,13 @@ async fn connect_to_server(rx: Rx, sender: Sender) -> Result<(), String> {
         };
 
         debug!("Message: {}", text);
-        tokio::spawn(handle_packet(text));
+        tokio::spawn(handle_packet(text).then(|res| match res {
+            Ok(()) => future::ready(()),
+            Err(e) => {
+                error!("Error handling packet: {}", e);
+                future::ready(())
+            }
+        }));
     });
 
     let outgoing = rx.map(Ok).forward(write);
@@ -175,7 +189,7 @@ async fn connect_to_server(rx: Rx, sender: Sender) -> Result<(), String> {
     Ok(())
 }
 
-async fn handle_connection(sender: Sender) {
+async fn handle_connection(sender: Sender) -> Result<(), String> {
     let auth_packet = DSAuthPacket {
         id: 1,
         token: String::from("hi"),
@@ -184,44 +198,50 @@ async fn handle_connection(sender: Sender) {
     let auth_packet_data = match auth_packet.to_string() {
         Ok(data) => data,
         Err(_) => {
-            error!("Failed to serialize DSAuthPacket");
-            return;
+            return Err(format!("Failed to serialize DSAuthPacket"));
         }
     };
 
-    sender.lock().expect("lock should not be poisoned").as_ref().expect("sender should be available").unbounded_send(Message::Text(auth_packet_data)).expect("message should get sent");
+    sender.lock().map_err(|_| "sender has been poisoned")?.as_ref().ok_or("sender is not available")?.unbounded_send(Message::Text(auth_packet_data)).map_err(|_| "Could not send message")?;
+
+    Ok(())
 }
 
-async fn handle_packet(msg: String) {
+async fn handle_packet(msg: String) -> Result<(), String> {
     debug!("Received packet");
 
     let try_packet = Packet::from_str(&msg);
 
-    if try_packet.is_none() {
-        return;
-    }
-
-    let packet = try_packet.expect("packet should be some");
+    let packet = match try_packet {
+        Some(packet) => packet,
+        None => {
+            return Err(format!("Error parsing packet: \"{}\"", msg));
+        }
+    };
 
     debug!("Packet:\n{:#?}", packet);
 
     match packet.id {
         ID::SDAuthResponse => {
-            handle_auth_response(SDAuthResponsePacket::parse(packet).expect("SDAuthResponsePacket should be Some")).await;
+            handle_auth_response(SDAuthResponsePacket::parse(packet).expect("SDAuthResponsePacket should be Some")).await
         }
         ID::SDListen => {
-            handle_listen(SDListenPacket::parse(packet).expect("SDListenPacket should be Some")).await;
+            handle_listen(SDListenPacket::parse(packet).expect("SDListenPacket should be Some")).await
         }
         _ => {
-            eprintln!("(E) Should not receive [A*|D*|SA] packet: {:?}", packet.id);
+            Err(format!("Should not receive [A*|D*|SA] packet: {:?}", packet.id))
         }
     }
 }
 
-async fn handle_auth_response(auth_response_packet: SDAuthResponsePacket) {
+async fn handle_auth_response(auth_response_packet: SDAuthResponsePacket) -> Result<(), String> {
     info!("Auth Response:\n{:#?}", auth_response_packet);
+
+    Ok(())
 }
 
-async fn handle_listen(listen_packet: SDListenPacket) {
+async fn handle_listen(listen_packet: SDListenPacket) -> Result<(), String> {
     info!("Listen:\n{:#?}", listen_packet);
+
+    Ok(())
 }
