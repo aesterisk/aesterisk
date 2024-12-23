@@ -1,7 +1,11 @@
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, serde::Serialize, serde::Deserialize, Default)]
 pub struct Config {
+    #[serde(default)]
     pub server: Server,
+    #[serde(default)]
     pub sockets: Sockets,
+    #[serde(default)]
+    pub logging: Logging,
 }
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
@@ -10,27 +14,41 @@ pub struct Server {
     pub private_key: String,
 }
 
+impl Default for Server {
+    fn default() -> Self {
+        Self {
+            app_url: "http://127.0.0.1:3000".to_string(),
+            private_key: "private.pem".to_string(),
+        }
+    }
+}
+
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct Sockets {
     pub app: String,
     pub daemon: String,
 }
 
-fn create_defaults(file: &str) -> Config {
-    let config = Config {
-        server: Server {
-            app_url: "http://localhost:3000".to_string(),
-            private_key: "server.pem".to_string(),
-        },
-        sockets: Sockets {
+impl Default for Sockets {
+    fn default() -> Self {
+        Self {
             app: "127.0.0.1:31306".to_string(),
             daemon: "127.0.0.1:31304".to_string(),
         }
-    };
+    }
+}
 
-    save(&config, file);
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+pub struct Logging {
+    pub folder: String,
+}
 
-    config
+impl Default for Logging {
+    fn default() -> Self {
+        Self {
+            folder: "./logs".to_string()
+        }
+    }
 }
 
 fn save(config: &Config, file: &str) {
@@ -43,5 +61,7 @@ fn load(file: &str) -> Option<Config> {
 }
 
 pub fn load_or_create(file: &str) -> Config {
-    load(file).unwrap_or_else(|| create_defaults(file))
+    let config = load(file).unwrap_or_default();
+    save(&config, file);
+    config
 }
