@@ -25,7 +25,7 @@ export const columns: ColumnDef<Node>[] = [
 
 			return (
 				<div className="flex items-center gap-2">
-					<div className={cn("rounded-full bg-rose-600 w-2 h-2", online && "bg-emerald-600")} />
+					<div className={cn("rounded-full bg-rose-600 w-2 h-2", online && "bg-emerald-500")} />
 					<span>{ online ? "Online" : "Offline" }</span>
 				</div>
 			);
@@ -46,7 +46,7 @@ export const columns: ColumnDef<Node>[] = [
 					{
 						online > 0 && (
 							<div className="flex flex-row items-center gap-2">
-								<div className="rounded-full bg-emerald-600 w-2 h-2" />
+								<div className="rounded-full bg-emerald-500 w-2 h-2" />
 								<span>{ online }</span>
 							</div>
 						)
