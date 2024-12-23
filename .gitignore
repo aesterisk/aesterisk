@@ -26,6 +26,9 @@
 ### Config
 /server/config.toml
 
+### Logs
+/server/logs
+
 ### Cargo
 /server/target
 /server/debug
@@ -52,6 +55,12 @@
 
 ## aesterisk/daemon
 
+### Config
+/daemon/config.toml
+
+### Logs
+/daemon/logs
+
 ### Cargo
 /daemon/target
 /daemon/debug
@@ -67,6 +76,9 @@
 
 ### Docker Volumes
 /docker
+
+### Temporary Test Files
+/test
 
 
 ## Misc
