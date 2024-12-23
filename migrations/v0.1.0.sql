@@ -30,7 +30,7 @@ CREATE TABLE aesterisk.nodes (
 	node_last_external_ip VARCHAR(15) NOT NULL,
 	node_ip_locked BOOLEAN NOT NULL,
 	node_uuid UUID NOT NULL,
-	node_network_ip_range VARCHAR(15) NOT NULL
+	node_network_ip_range SMALLINT NOT NULL
 );
 
 CREATE INDEX ix_nodes_uuid ON aesterisk.nodes(node_uuid);
@@ -39,7 +39,7 @@ CREATE TABLE aesterisk.networks (
 	network_id SERIAL PRIMARY KEY NOT NULL,
 	network_name TEXT NOT NULL,
 	network_docker_id TEXT NOT NULL,
-	network_local_ip VARCHAR(15) NOT NULL
+	network_local_ip SMALLINT NOT NULL
 );
 
 CREATE TABLE aesterisk.node_networks (
@@ -56,6 +56,7 @@ CREATE TABLE aesterisk.servers (
 	server_id SERIAL PRIMARY KEY NOT NULL,
 	server_docker_id TEXT NOT NULL,
 	server_network INTEGER NOT NULL,
+	server_local_ip SMALLINT NOT NULL,
 	CONSTRAINT fk_networks FOREIGN KEY(server_network) REFERENCES aesterisk.networks(network_id)
 );
 
