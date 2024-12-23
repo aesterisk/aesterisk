@@ -3,7 +3,7 @@ use std::io;
 use futures_util::join;
 use josekit::jwk::alg::rsa::RsaKeyPair;
 use lazy_static::lazy_static;
-use tracing::{error, info, warn, Level};
+use tracing::{info, warn, Level};
 use tracing_appender::rolling::Rotation;
 use tracing_subscriber::{fmt::writer::MakeWriterExt, layer::SubscriberExt, util::SubscriberInitExt};
 
@@ -45,5 +45,5 @@ async fn main() {
     app_res.expect("failed to join handle");
     daemon_res.expect("failed to join handle");
 
-    error!("App and Daemon Servers are down, exiting...");
+    warn!("App and Daemon Servers are down, exiting...");
 }
