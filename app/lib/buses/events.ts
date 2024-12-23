@@ -10,14 +10,21 @@ export const eventsBus = createEventBus<EventsBus>({
 	onError: (e) => {
 		console.error(e);
 	},
-	preListen: (key) => {
+	preListen: (key, _handler, preParams) => {
 		if(key === EventType.NodesList) {
-			socketBus.once("connected", () => {
-				socketBus.emit(ID.ASListen, {
-					type: EventType.NodesList,
-					data: [],
-				});
+			socketBus.on("connected", () => {
+				socketBus.emit(
+					ID.ASListen,
+					[
+						{
+							type: EventType.NodesList,
+							data: preParams,
+						},
+					],
+				);
 			});
 		}
+
+		return false;
 	},
 });

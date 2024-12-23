@@ -3,10 +3,11 @@ type EventKey = string | symbol;
 type EventHandler<T = any> = (payload: T)=> void;
 export type EventMap = Record<EventKey, EventHandler>;
 
-interface EventBus<T extends EventMap> {
-	on<Key extends keyof T>(key: Key, handler: T[Key]): ()=> void;
+export interface EventBus<T extends EventMap> {
+	// eslint-disable-next-line @typescript-eslint/no-explicit-any
+	on<Key extends keyof T>(key: Key, handler: T[Key], preParams?: any): ()=> void;
 	off<Key extends keyof T>(key: Key, handlers: T[Key]): void;
-	emit<Key extends keyof T>(key: Key, payload: Parameters<T[Key]>[0]): void;
+	emit<Key extends keyof T>(key: Key, payload?: Parameters<T[Key]>[0]): void;
 	once<Key extends keyof T>(key: Key, handler: T[Key]): void;
 }
 
@@ -15,7 +16,8 @@ type Bus<E> = Record<keyof E, E[keyof E][]>;
 export function createEventBus<E extends EventMap>(config?: {
 	// eslint-disable-next-line @typescript-eslint/no-explicit-any
 	onError: (...params: any[])=> void;
-	preListen?<Key extends keyof E>(key: Key, handler: E[Key]): unknown;
+	// eslint-disable-next-line @typescript-eslint/no-explicit-any
+	preListen?<Key extends keyof E>(key: Key, handler: E[Key], preParams: any): boolean;
 }): EventBus<E> {
 	const bus: Partial<Bus<E>> = {};
 
@@ -25,8 +27,8 @@ export function createEventBus<E extends EventMap>(config?: {
 		bus[key]?.splice(index >>> 0, 1);
 	};
 
-	const on: EventBus<E>["on"] = (key, handler) => {
-		const intercept = config?.preListen?.(key, handler);
+	const on: EventBus<E>["on"] = (key, handler, preParams) => {
+		const intercept = config?.preListen?.(key, handler, preParams);
 
 		if(intercept) {
 			handler(intercept);

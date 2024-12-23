@@ -3,9 +3,8 @@
 import { ReactNode, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { socketBus } from "@/lib/buses/socket";
-import { eventsBus } from "@/lib/buses/events";
 import { dev } from "@/lib/dev";
-import { ASAuthPacket, Event, ID, SAAuthResponseData, Version } from "@/lib/types/packets";
+import { ASAuthPacket, ASListenPacket, Event, ID, SAAuthResponseData, Version } from "@/lib/types/packets";
 import { importPKCS8 } from "jose";
 import { decryptPacket, encryptPacket } from "@/lib/signing";
 
@@ -36,10 +35,11 @@ export const SocketProvider = ({ children, userID, publicKey, privateKey }: Para
 	const sendConnectedToast = useRef(false);
 
 	useEffect(() => {
-		const unsub = socketBus.on("AuthResponse", ({ success }) => {
+		const unsubAuthResponse = socketBus.on(ID.SAAuthResponse, ({ success }) => {
 			if(success) {
 				setState(SocketState.Connected);
 				socketConnectionTries.current = 0;
+				socketBus.emit("connected");
 				if(dev()) console.log("[Socket] Authenticated");
 
 				if(sendConnectedToast.current) {
@@ -54,6 +54,12 @@ export const SocketProvider = ({ children, userID, publicKey, privateKey }: Para
 					});
 				}
 			}
+		});
+
+		const unsubListenEvent = socketBus.on(ID.ASListen, (events) => {
+			socketBus.on("connected", async() => {
+				socket?.send(await encryptPacket(ASListenPacket(events)));
+			});
 		});
 
 		if(!socket && socketConnectionTries.current < MAX_SOCKET_CONNECTION_TRIES
@@ -97,11 +103,11 @@ export const SocketProvider = ({ children, userID, publicKey, privateKey }: Para
 					if(packet.version === Version.V0_1_0) {
 						switch(packet.id) {
 							case ID.SAAuthResponse: {
-								socketBus.emit("AuthResponse", packet.data as SAAuthResponseData);
+								socketBus.emit(ID.SAAuthResponse, packet.data as SAAuthResponseData);
 								break;
 							}
 							case ID.SAEvent: {
-								socketBus.emit("Event", packet.data as Event);
+								socketBus.emit(ID.SAEvent, packet.data as Event);
 								break;
 							}
 							default: {
@@ -143,7 +149,8 @@ export const SocketProvider = ({ children, userID, publicKey, privateKey }: Para
 				socket.close();
 			}
 
-			unsub();
+			unsubListenEvent();
+			unsubAuthResponse();
 		};
 	}, [socket, setSocket, socketConnectionTries, state, privateKey, publicKey, userID]);
 

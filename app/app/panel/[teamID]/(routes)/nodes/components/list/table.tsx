@@ -5,22 +5,23 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Button } from "@/components/ui/button";
 import { useEffect } from "react";
 import { eventsBus } from "@/lib/buses/events";
+import { Node } from "@/lib/types/node";
 
-interface DataTableProps<TData, TValue> {
-	columns: ColumnDef<TData, TValue>[];
-	data: TData[];
+interface DataTableProps<TValue> {
+	columns: ColumnDef<Node, TValue>[];
+	data: Node[];
 }
 
-export function DataTable<TData, TValue>({ columns, data }: DataTableProps<TData, TValue>) {
+export function DataTable<TValue>({ columns, data }: DataTableProps<TValue>) {
 	useEffect(() => {
 		const unsubscribe = eventsBus.on("NodesList", (nodes) => {
 			console.log("Got node status", nodes);
-		});
+		}, data.map((node) => node.id));
 
 		return () => {
 			unsubscribe();
 		};
-	}, []);
+	}, [data]);
 
 	const table = useReactTable({
 		data,
