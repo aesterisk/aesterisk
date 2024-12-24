@@ -140,7 +140,7 @@ fn error_to_string(e: tungstenite::Error) -> String {
 }
 
 async fn connect_to_server(rx: Rx, sender: Sender) -> Result<(), String> {
-    let (stream, _) = tokio_tungstenite::connect_async("ws://127.0.0.1:31304").await.map_err(|e| format!("Could not connect to server: {}", error_to_string(e)))?;
+    let (stream, _) = tokio_tungstenite::connect_async("wss://daemon.server.aesterisk.io").await.map_err(|e| format!("Could not connect to server: {}", error_to_string(e)))?;
 
     info!("Connected to server");
     let (write, read) = stream.split();

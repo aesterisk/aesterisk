@@ -74,7 +74,7 @@ export const SocketProvider = ({ children, userID, publicKey, privateKey }: Para
 				sendConnectedToast.current = true;
 			}
 
-			const ws = new WebSocket("ws://localhost:31306");
+			const ws = new WebSocket("wss://app.server.aesterisk.io");
 
 			ws.onopen = async() => {
 				ws.send(await encryptPacket(ASAuthPacket({

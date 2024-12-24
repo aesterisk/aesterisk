@@ -87,8 +87,12 @@
 
 ## Development
 
-### Docker Volumes
-/docker
+### Postgres Development Volume
+/docker/postgres
+
+### Nginx Development SSL Certificates
+/docker/nginx/**.crt
+/docker/nginx/**.key
 
 ### Temporary Test Files
 /test
