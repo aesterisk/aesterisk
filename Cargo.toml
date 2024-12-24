@@ -1,0 +1,31 @@
+[workspace]
+resolver = "2"
+
+members = [
+	"server",
+	"packet",
+	"daemon",
+]
+
+[workspace.package]
+authors = ["yolocat-dev"]
+edition = "2021"
+description = "Server management done right."
+license = "AGPL-3.0"
+readme = "README.md"
+repository = "https://github.com/aesterisk/aesterisk"
+
+[workspace.dependencies]
+futures-channel = "0.3.31"
+futures-util = "0.3.31"
+josekit = "0.10.1"
+lazy_static = "1.5.0"
+serde = { version = "1.0.213", features = ["derive"] }
+serde_json = "1.0.132"
+serde_repr = "0.1.19"
+tokio = { version = "1.41.0", features = ["full"] }
+tokio-tungstenite = "0.24.0"
+toml = "0.8.19"
+tracing = "0.1.41"
+tracing-appender = "0.2.3"
+tracing-subscriber = "0.3.19"
