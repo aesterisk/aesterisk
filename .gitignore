@@ -1,5 +1,18 @@
 # github.com/aesterisk/aesterisk
 
+## aesterisk
+
+### Cargo
+/target
+/debug
+
+### Rustfmt
+/**/*.rs.bk
+
+### MSVC rustc debug info
+/*.pdb
+
+
 ## aesterisk/app
 
 ### Node.js
