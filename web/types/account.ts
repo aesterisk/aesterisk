@@ -115,6 +115,7 @@ export async function getAccountByGhId(ghId: string): Promise<Account | null> {
 		SELECT
 			account_id,
 			account_gh_id,
+			account_email,
 			account_first_name,
 			account_last_name,
 			account_avatar,
