@@ -5,7 +5,6 @@ export default {
 	content: [
 		"./components/**/*.{ts,tsx}",
 		"./app/**/*.{ts,tsx}",
-		"./lib/**/*.{ts,tsx}",
 		"./hooks/**/*.{ts,tsx}",
 		"./types/**/*.{ts,tsx}",
 	],
