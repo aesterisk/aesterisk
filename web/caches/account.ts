@@ -25,5 +25,5 @@ export const getAccount = async() => {
 
 	const [firstName, lastName] = [...(user.name?.split(" ") ?? ["AesteriskNoFirstName", "AesteriskNoLastName"]), null];
 
-	return await getCachedAccount(user.gh, user.email as string, firstName!, lastName, user.image ?? null);
+	return await getCachedAccount(user.gh, user.email!, firstName!, lastName, user.image ?? null);
 };
