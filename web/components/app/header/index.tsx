@@ -68,7 +68,16 @@ export default function AesteriskHeader({ teamID }: { teamID: Promise<string>; }
 							</Button>
 						</DropdownMenuTrigger>
 						<DropdownMenuContent align="end">
-							<Suspense fallback={<DropdownMenuLabel className="py-2.5"><Skeleton className="h-3 w-24" /></DropdownMenuLabel>}>
+							<Suspense
+								fallback={
+									(
+										<DropdownMenuLabel className="py-2.5">
+											<div className="mb-2"><Skeleton className="h-3 w-24" /></div>
+											<div><Skeleton className="h-3 w-full" /></div>
+										</DropdownMenuLabel>
+									)
+								}
+							>
 								<AesteriskDropdownLabel />
 							</Suspense>
 							<DropdownMenuSeparator />
@@ -78,7 +87,7 @@ export default function AesteriskHeader({ teamID }: { teamID: Promise<string>; }
 							</DropdownMenuItem>
 							<DropdownMenuItem>
 								<LifeBuoy size={16} className="mr-1.5" />
-								{ "Support" }
+								{ "Aesterisk Support" }
 							</DropdownMenuItem>
 							<DropdownMenuSeparator />
 							<form
@@ -100,7 +109,7 @@ export default function AesteriskHeader({ teamID }: { teamID: Promise<string>; }
 								<button type="submit" className="w-full">
 									<DropdownMenuItem className="text-destructive focus:text-destructive">
 										<LogOut size={16} className="mr-1.5" />
-										{ "Logout" }
+										{ "Log Out" }
 									</DropdownMenuItem>
 								</button>
 							</form>

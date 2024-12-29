@@ -8,6 +8,9 @@ export default async function AesteriskDropdownLabel() {
 	if(!account) return <></>;
 
 	return (
-		<DropdownMenuLabel>{ account.lastName === null ? account.firstName : `${account.firstName} ${account.lastName}` }</DropdownMenuLabel>
+		<DropdownMenuLabel>
+			<p>{ account.lastName === null ? account.firstName : `${account.firstName} ${account.lastName}` }</p>
+			<p className="font-normal opacity-50">{ account.email }</p>
+		</DropdownMenuLabel>
 	);
 }
