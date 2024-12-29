@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import React from "react";
+import { dev } from "@/lib/dev";
 
 const geistSans = Geist({
 	variable: "--font-geist-sans",
@@ -44,6 +45,14 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode; }>) {
 	return (
 		<html lang="en">
+			{
+				dev() && (
+					<head>
+						{ /* eslint-disable-next-line @next/next/no-sync-scripts */ }
+						<script src="http://localhost:8097" />
+					</head>
+				)
+			}
 			<body className={`${geistSans.variable} ${geistMono.variable} font-sans antialiased w-screen h-screen overflow-hidden`}>
 				{ children }
 			</body>
