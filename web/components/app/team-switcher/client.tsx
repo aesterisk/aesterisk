@@ -27,7 +27,7 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Check, ChevronsUpDown, Plus } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
-import { UserTeam } from "@/lib/types/team";
+import { UserTeam } from "@/types/team";
 
 type PopoverTriggerProps = React.ComponentPropsWithoutRef<typeof PopoverTrigger>;
 
@@ -57,15 +57,16 @@ export default function TeamSwitcher({ selectedTeam, personalTeam, otherTeams, c
 						aria-expanded={open}
 						aria-label="Select a team"
 						className={cn("w-full justify-between px-[13px]", className)}
+						style={{ gap: "11px" }} // for some reason, tailwind's "gap-..." behaves really weird. might be next@canary (prob not), turbopack (maybe), or my dumb self (probably)
 						ref={btn}
 					>
 						{
 							isLoading
 								? (
-									<Skeleton className="h-5 w-5 mr-[11px] rounded-full" />
+									<Skeleton className="h-5 w-5 rounded-full" />
 								)
 								: (
-									<Avatar className="h-5 w-5 mr-[11px]">
+									<Avatar className="h-5 w-5">
 										<AvatarFallback className={cn("text-[10px] font-semibold", getPlan(selectedTeam.team).color)}>{ getPrimaryChars(selectedTeam.team.name) }</AvatarFallback>
 									</Avatar>
 								)
@@ -89,7 +90,7 @@ export default function TeamSwitcher({ selectedTeam, personalTeam, otherTeams, c
 										}
 									}
 								>
-									<Plus className="mr-2 h-5 w-5" />
+									<Plus className="h-5 w-5" />
 									{ "Create new Team" }
 								</Button>
 							</CommandEmpty>
@@ -104,7 +105,7 @@ export default function TeamSwitcher({ selectedTeam, personalTeam, otherTeams, c
 									}
 									className="text-sm"
 								>
-									<Avatar className="mr-2 h-5 w-5">
+									<Avatar className="h-5 w-5">
 										<AvatarFallback className={cn("text-[10px] font-semibold", getPlan(personalTeam.team).color)}>{ getPrimaryChars(personalTeam.team.name) }</AvatarFallback>
 									</Avatar>
 									{ personalTeam.team.name }
@@ -127,7 +128,7 @@ export default function TeamSwitcher({ selectedTeam, personalTeam, otherTeams, c
 											}
 											className="text-sm"
 										>
-											<Avatar className="mr-2 h-5 w-5">
+											<Avatar className="h-5 w-5">
 												<AvatarFallback className={cn("text-[10px] font-semibold", getPlan(team.team).color)}>{ getPrimaryChars(team.team.name) }</AvatarFallback>
 											</Avatar>
 											{ team.team.name }
@@ -151,7 +152,7 @@ export default function TeamSwitcher({ selectedTeam, personalTeam, otherTeams, c
 											}
 										}
 									>
-										<Plus className="mr-2 h-5 w-5" strokeWidth={1.5} />
+										<Plus className="h-5 w-5" strokeWidth={1.5} />
 										{ "Create Team" }
 									</CommandItem>
 								</DialogTrigger>
