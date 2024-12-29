@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import React from "react";
@@ -14,14 +14,37 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
+	// todo: add more metadata
 	title: "Aesterisk",
 	description: "Server management done right.",
+	applicationName: "Aesterisk",
+	openGraph: {
+		type: "website",
+	},
+	robots: {
+		index: true,
+		follow: true,
+	},
+};
+
+export const viewport: Viewport = {
+	themeColor: [
+		{
+			media: "(prefers-color-scheme: light)",
+			color: "hsl(210, 25%, 98.4%)",
+		},
+		{
+			// todo: dark mode for real
+			media: "(prefers-color-scheme: dark)",
+			color: "#000000",
+		},
+	],
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode; }>) {
 	return (
 		<html lang="en">
-			<body className={`${geistSans.variable} ${geistMono.variable} font-sans antialiased`}>
+			<body className={`${geistSans.variable} ${geistMono.variable} font-sans antialiased w-screen h-screen overflow-hidden`}>
 				{ children }
 			</body>
 		</html>

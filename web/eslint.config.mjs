@@ -9,6 +9,9 @@ const compat = new FlatCompat({
 });
 
 const eslintConfig = [
+	{
+		ignores: [".next/", "next-env.d.ts"],
+	},
 	...compat.extends("next/core-web-vitals", "next/typescript", "@yolocat"),
 	{
 		rules: {
@@ -17,7 +20,8 @@ const eslintConfig = [
 			"no-nested-ternary": "off",
 			"@typescript-eslint/no-shadow": "error",
 			"no-shadow": "off",
-
+			"@typescript-eslint/no-unused-vars": "error",
+			"no-unused-vars": "off",
 			"new-cap": [
 				"error", {
 					capIsNew: false,
