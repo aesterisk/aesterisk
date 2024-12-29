@@ -52,9 +52,9 @@ export default function AesteriskHeader({ teamID }: { teamID: Promise<string>; }
 				<div className="flex items-center gap-4 g:w-[536px] justify-end">
 					{ /* todo: create docs */ }
 					<Link href="/docs">
-						<Button variant="link" className="p-0">
+						<Button variant="link" className="p-0 gap-1">
 							<span>{ "Docs" }</span>
-							<ArrowUpRight className="h-4 w-4 mb-2 ml-1" />
+							<ArrowUpRight className="h-4 w-4 mb-2" />
 						</Button>
 					</Link>
 					<DropdownMenu>
