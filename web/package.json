@@ -2,8 +2,9 @@
 	"name": "web",
 	"version": "0.1.0",
 	"private": true,
+	"__TURBOPACK_COMMENT": "tailwindcss (or postcss) doesn't seem to work perfectly with `next dev --turbopack`, so it's disabled for now.",
 	"scripts": {
-		"dev": "next dev --turbopack",
+		"dev": "next dev",
 		"build": "next build",
 		"start": "next start",
 		"lint": "next lint --fix -d . --ext .json"
