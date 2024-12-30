@@ -30,7 +30,7 @@ export default function LoginButton({
 				}
 			}
 		>
-			<Button type="submit" variant={outline ? "outline" : "default"} className="w-full [&_svg]:size-6">
+			<Button type="submit" variant={outline ? "outline" : "default"} className="w-full [&_svg]:size-5">
 				{ children }
 			</Button>
 		</form>
