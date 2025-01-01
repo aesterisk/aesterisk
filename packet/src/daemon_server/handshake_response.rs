@@ -1,13 +1,13 @@
 use crate::{Packet, Version, ID};
 
 #[derive(serde::Serialize, serde::Deserialize, Debug)]
-pub struct DSAuthPacket {
-    pub daemon_uuid: String,
+pub struct DSHandshakeResponsePacket {
+    pub challenge: String,
 }
 
-impl DSAuthPacket {
+impl DSHandshakeResponsePacket {
     pub fn parse(packet: Packet) -> Option<Self> {
-        if packet.id != ID::DSAuth {
+        if packet.id != ID::DSHandshakeResponse {
             return None;
         }
 
@@ -16,7 +16,7 @@ impl DSAuthPacket {
                 let res = serde_json::from_value(packet.data);
 
                 if res.is_err() {
-                    println!("W (Packet) DSAuthPacket deserializing error: {:#?}", res.as_ref().err().expect("Result::err should return Some when Result::is_err returns true"));
+                    println!("W (Packet) DSHandshakeResponsePacket deserializing error: {:#?}", res.as_ref().err().expect("Result::err should return Some when Result::is_err returns true"));
                 }
 
                 res.ok()
@@ -26,7 +26,7 @@ impl DSAuthPacket {
 
     pub fn to_packet(&self) -> Result<Packet, String> {
         let data = serde_json::to_value(&self).map_err(|_| "packet data should be serializeable")?;
-        Ok(Packet::new(Version::V0_1_0, ID::DSAuth, data))
+        Ok(Packet::new(Version::V0_1_0, ID::DSHandshakeResponse, data))
     }
 
     pub fn to_string(&self) -> Result<String, String> {

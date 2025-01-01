@@ -4,7 +4,7 @@ import { ReactNode, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { socketBus } from "@/lib/buses/socket";
 import { dev } from "@/lib/dev";
-import { ASAuthPacket, ASListenPacket, Event, ID, SAAuthResponseData, Version } from "@/types/packets";
+import { ASAuthPacket, ASHandshakeResponsePacket, ASListenPacket, Event, ID, SAAuthResponseData, SAHandshakeRequestData, Version } from "@/types/packets";
 import { importPKCS8 } from "jose";
 import { decryptPacket, encryptPacket } from "@/lib/signing";
 
@@ -35,6 +35,10 @@ export const SocketProvider = ({ children, userID, publicKey, privateKey }: Para
 	const sendConnectedToast = useRef(false);
 
 	useEffect(() => {
+		const unsubHandshakeRequest = socketBus.on(ID.SAHandshakeRequest, async({ challenge }) => {
+			socket?.send(await encryptPacket(ASHandshakeResponsePacket(challenge)));
+		});
+
 		const unsubAuthResponse = socketBus.on(ID.SAAuthResponse, ({ success }) => {
 			if(success) {
 				setState(SocketState.Connected);
@@ -106,6 +110,10 @@ export const SocketProvider = ({ children, userID, publicKey, privateKey }: Para
 								socketBus.emit(ID.SAAuthResponse, packet.data as SAAuthResponseData);
 								break;
 							}
+							case ID.SAHandshakeRequest: {
+								socketBus.emit(ID.SAHandshakeRequest, packet.data as SAHandshakeRequestData);
+								break;
+							}
 							case ID.SAEvent: {
 								socketBus.emit(ID.SAEvent, packet.data as Event);
 								break;
@@ -150,6 +158,7 @@ export const SocketProvider = ({ children, userID, publicKey, privateKey }: Para
 			}
 
 			unsubListenEvent();
+			unsubHandshakeRequest();
 			unsubAuthResponse();
 		};
 	}, [socket, setSocket, socketConnectionTries, state, privateKey, publicKey, userID]);

@@ -21,12 +21,16 @@ pub enum Version {
 pub enum ID {
     ASAuth = 0,
     DSAuth = 1,
-    SAAuthResponse = 2,
-    SDAuthResponse = 3,
-    ASListen = 4,
-    SDListen = 5,
-    DSEvent = 6,
-    SAEvent = 7,
+    SAHandshakeRequest = 2,
+    SDHandshakeRequest = 3,
+    ASHandshakeResponse = 4,
+    DSHandshakeResponse = 5,
+    SAAuthResponse = 6,
+    SDAuthResponse = 7,
+    ASListen = 8,
+    SDListen = 9,
+    DSEvent = 10,
+    SAEvent = 11,
 }
 
 impl Packet {

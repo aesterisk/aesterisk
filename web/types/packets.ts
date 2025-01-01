@@ -5,12 +5,16 @@ export enum Version {
 export enum ID {
 	ASAuth = 0,
 	DSAuth = 1,
-	SAAuthResponse = 2,
-	SDAuthResponse = 3,
-	ASListen = 4,
-	SDListen = 5,
-	DSEvent = 6,
-	SAEvent = 7,
+	SAHandshakeRequest = 2,
+	SDHandshakeRequest = 3,
+	ASHandshakeResponse = 4,
+	DSHandshakeResponse = 5,
+	SAAuthResponse = 6,
+	SDAuthResponse = 7,
+	ASListen = 8,
+	SDListen = 9,
+	DSEvent = 10,
+	SAEvent = 11,
 }
 
 export type Packet = {
@@ -29,6 +33,20 @@ export function ASAuthPacket(data: ASAuthData): Packet {
 		version: Version.V0_1_0,
 		id: ID.ASAuth,
 		data,
+	} satisfies Packet;
+}
+
+export type SAHandshakeRequestData = {
+	challenge: string;
+};
+
+export function ASHandshakeResponsePacket(challenge: string): Packet {
+	return {
+		version: Version.V0_1_0,
+		id: ID.ASHandshakeResponse,
+		data: {
+			challenge,
+		} satisfies SAHandshakeRequestData,
 	} satisfies Packet;
 }
 

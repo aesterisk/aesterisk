@@ -1,8 +1,9 @@
-use std::io;
+use std::{env, io};
 
 use futures_util::join;
 use josekit::jwk::alg::rsa::RsaKeyPair;
 use lazy_static::lazy_static;
+use sqlx::postgres::PgPoolOptions;
 use tracing::{info, warn, Level};
 use tracing_appender::rolling::Rotation;
 use tracing_subscriber::{fmt::writer::MakeWriterExt, layer::SubscriberExt, util::SubscriberInitExt};
@@ -14,6 +15,7 @@ mod daemon;
 lazy_static! {
     static ref CONFIG: config::Config = config::load_or_create("config.toml");
     static ref PRIVATE_KEY: josekit::jwk::Jwk = read_key(&CONFIG.server.private_key);
+    static ref DECRYPTER: josekit::jwe::alg::rsaes::RsaesJweDecrypter = josekit::jwe::RSA_OAEP.decrypter_from_jwk(&PRIVATE_KEY).expect("decrypter should create successfully");
 }
 
 fn read_key(file: &str) -> josekit::jwk::Jwk {
@@ -22,6 +24,7 @@ fn read_key(file: &str) -> josekit::jwk::Jwk {
     key.to_jwk_private_key()
 }
 
+#[dotenvy::load]
 #[tokio::main]
 async fn main() {
     let logs_rotation = tracing_appender::rolling::Builder::new().filename_suffix("server.aesterisk.log").rotation(Rotation::DAILY).build(&CONFIG.logging.folder).expect("could not initialize file logger");
@@ -36,10 +39,12 @@ async fn main() {
 
     info!("Starting Aesterisk Server v{}", env!("CARGO_PKG_VERSION"));
 
+    let pool = PgPoolOptions::new().max_connections(5).connect(&env::var("DATABASE_URL").expect("environment variable DATABASE_URL needs to be set")).await.expect("could not connect to database");
+
     info!("Starting Daemon Server...");
-    let daemon_server_handle = tokio::spawn(daemon::start(&CONFIG, &PRIVATE_KEY));
+    let daemon_server_handle = tokio::spawn(daemon::start(pool.clone()));
     info!("Starting App Server...");
-    let app_server_handle = tokio::spawn(app::start(&CONFIG, &PRIVATE_KEY));
+    let app_server_handle = tokio::spawn(app::start(pool.clone()));
 
     let (app_res, daemon_res) = join!(app_server_handle, daemon_server_handle);
     app_res.expect("failed to join handle");
