@@ -159,7 +159,7 @@ async fn handle_packet(msg: String, addr: SocketAddr, channel_map: ChannelMap, k
             handle_event(DSEventPacket::parse(packet).expect("DSEventPacket should be Some"), addr, channel_map).await
         },
         _ => {
-            Err(format!("Should not receive [SA]* packet: {:?}", packet.id))
+            Err(format!("Should not receive [SW]* packet: {:?}", packet.id))
         },
     }
 }
