@@ -1,5 +1,5 @@
-pub mod app_server;
-pub mod server_app;
+pub mod web_server;
+pub mod server_web;
 pub mod daemon_server;
 pub mod server_daemon;
 
@@ -19,18 +19,18 @@ pub enum Version {
 #[derive(serde_repr::Serialize_repr, serde_repr::Deserialize_repr, Debug, PartialEq)]
 #[repr(u8)]
 pub enum ID {
-    ASAuth = 0,
+    WSAuth = 0,
     DSAuth = 1,
-    SAHandshakeRequest = 2,
+    SWHandshakeRequest = 2,
     SDHandshakeRequest = 3,
-    ASHandshakeResponse = 4,
+    WSHandshakeResponse = 4,
     DSHandshakeResponse = 5,
-    SAAuthResponse = 6,
+    SWAuthResponse = 6,
     SDAuthResponse = 7,
-    ASListen = 8,
+    WSListen = 8,
     SDListen = 9,
     DSEvent = 10,
-    SAEvent = 11,
+    SWEvent = 11,
 }
 
 impl Packet {

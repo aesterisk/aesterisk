@@ -8,9 +8,9 @@ use tracing::{info, warn, Level};
 use tracing_appender::rolling::Rotation;
 use tracing_subscriber::{fmt::writer::MakeWriterExt, layer::SubscriberExt, util::SubscriberInitExt};
 
-mod app;
 mod config;
 mod daemon;
+mod web;
 
 lazy_static! {
     static ref CONFIG: config::Config = config::load_or_create("config.toml");
@@ -43,12 +43,12 @@ async fn main() {
 
     info!("Starting Daemon Server...");
     let daemon_server_handle = tokio::spawn(daemon::start(pool.clone()));
-    info!("Starting App Server...");
-    let app_server_handle = tokio::spawn(app::start(pool.clone()));
+    info!("Starting Web Server...");
+    let web_server_handle = tokio::spawn(web::start(pool.clone()));
 
-    let (app_res, daemon_res) = join!(app_server_handle, daemon_server_handle);
-    app_res.expect("failed to join handle");
+    let (web_res, daemon_res) = join!(web_server_handle, daemon_server_handle);
+    web_res.expect("failed to join handle");
     daemon_res.expect("failed to join handle");
 
-    warn!("App and Daemon Servers are down, exiting...");
+    warn!("Web and Daemon Servers are down, exiting...");
 }

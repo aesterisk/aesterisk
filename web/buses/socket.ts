@@ -1,10 +1,10 @@
 import { createEventBus, EventBus, EventMap } from "@/lib/bus";
-import { Event, ID, SAAuthResponseData } from "@/types/packets";
+import { Event, ID, SWAuthResponseData } from "@/types/packets";
 
 interface SocketBus extends EventMap {
-	[ID.SAAuthResponse]: (packet: SAAuthResponseData)=> void;
-	[ID.SAEvent]: (event: Event)=> void;
-	[ID.ASListen]: (events: Event[])=> void;
+	[ID.SWAuthResponse]: (packet: SWAuthResponseData)=> void;
+	[ID.SWEvent]: (event: Event)=> void;
+	[ID.WSListen]: (events: Event[])=> void;
 	connected: ()=> void;
 }
 

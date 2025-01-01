@@ -10,14 +10,14 @@ pub struct Config {
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct Server {
-    pub app_url: String,
+    pub web_url: String,
     pub private_key: String,
 }
 
 impl Default for Server {
     fn default() -> Self {
         Self {
-            app_url: "http://127.0.0.1:3000".to_string(),
+            web_url: "http://127.0.0.1:3000".to_string(),
             private_key: "private.pem".to_string(),
         }
     }
@@ -25,14 +25,14 @@ impl Default for Server {
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct Sockets {
-    pub app: String,
+    pub web: String,
     pub daemon: String,
 }
 
 impl Default for Sockets {
     fn default() -> Self {
         Self {
-            app: "127.0.0.1:31306".to_string(),
+            web: "127.0.0.1:31306".to_string(),
             daemon: "127.0.0.1:31304".to_string(),
         }
     }

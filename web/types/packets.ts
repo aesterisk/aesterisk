@@ -3,18 +3,18 @@ export enum Version {
 }
 
 export enum ID {
-	ASAuth = 0,
+	WSAuth = 0,
 	DSAuth = 1,
-	SAHandshakeRequest = 2,
+	SWHandshakeRequest = 2,
 	SDHandshakeRequest = 3,
-	ASHandshakeResponse = 4,
+	WSHandshakeResponse = 4,
 	DSHandshakeResponse = 5,
-	SAAuthResponse = 6,
+	SWAuthResponse = 6,
 	SDAuthResponse = 7,
-	ASListen = 8,
+	WSListen = 8,
 	SDListen = 9,
 	DSEvent = 10,
-	SAEvent = 11,
+	SWEvent = 11,
 }
 
 export type Packet = {
@@ -23,34 +23,34 @@ export type Packet = {
 	data: unknown;
 };
 
-export type ASAuthData = {
+export type WSAuthData = {
 	user_id: number;
 	public_key: string;
 };
 
-export function ASAuthPacket(data: ASAuthData): Packet {
+export function WSAuthPacket(data: WSAuthData): Packet {
 	return {
 		version: Version.V0_1_0,
-		id: ID.ASAuth,
+		id: ID.WSAuth,
 		data,
 	} satisfies Packet;
 }
 
-export type SAHandshakeRequestData = {
+export type SWHandshakeRequestData = {
 	challenge: string;
 };
 
-export function ASHandshakeResponsePacket(challenge: string): Packet {
+export function WSHandshakeResponsePacket(challenge: string): Packet {
 	return {
 		version: Version.V0_1_0,
-		id: ID.ASHandshakeResponse,
+		id: ID.WSHandshakeResponse,
 		data: {
 			challenge,
-		} satisfies SAHandshakeRequestData,
+		} satisfies SWHandshakeRequestData,
 	} satisfies Packet;
 }
 
-export type SAAuthResponseData = {
+export type SWAuthResponseData = {
 	success: boolean;
 };
 
@@ -68,10 +68,10 @@ export type Event = {
 	data: unknown;
 };
 
-export function ASListenPacket(events: Event[]): Packet {
+export function WSListenPacket(events: Event[]): Packet {
 	return {
 		version: Version.V0_1_0,
-		id: ID.ASListen,
+		id: ID.WSListen,
 		data: {
 			events: events.map((event) => ({
 				[event.type]: event.data,

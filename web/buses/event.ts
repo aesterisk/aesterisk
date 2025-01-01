@@ -14,7 +14,7 @@ export const eventsBus = createEventBus<EventsBus>({
 		if(key === EventType.NodesList) {
 			socketBus.on("connected", () => {
 				socketBus.emit(
-					ID.ASListen,
+					ID.WSListen,
 					[
 						{
 							type: EventType.NodesList,

@@ -2,9 +2,9 @@
 
 import { ReactNode, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
-import { socketBus } from "@/lib/buses/socket";
+import { socketBus } from "@/buses/socket";
 import { dev } from "@/lib/dev";
-import { ASAuthPacket, ASHandshakeResponsePacket, ASListenPacket, Event, ID, SAAuthResponseData, SAHandshakeRequestData, Version } from "@/types/packets";
+import { WSAuthPacket, WSHandshakeResponsePacket, WSListenPacket, Event, ID, SWAuthResponseData, SWHandshakeRequestData, Version } from "@/types/packets";
 import { importPKCS8 } from "jose";
 import { decryptPacket, encryptPacket } from "@/lib/signing";
 
@@ -35,11 +35,11 @@ export const SocketProvider = ({ children, userID, publicKey, privateKey }: Para
 	const sendConnectedToast = useRef(false);
 
 	useEffect(() => {
-		const unsubHandshakeRequest = socketBus.on(ID.SAHandshakeRequest, async({ challenge }) => {
-			socket?.send(await encryptPacket(ASHandshakeResponsePacket(challenge)));
+		const unsubHandshakeRequest = socketBus.on(ID.SWHandshakeRequest, async({ challenge }) => {
+			socket?.send(await encryptPacket(WSHandshakeResponsePacket(challenge)));
 		});
 
-		const unsubAuthResponse = socketBus.on(ID.SAAuthResponse, ({ success }) => {
+		const unsubAuthResponse = socketBus.on(ID.SWAuthResponse, ({ success }) => {
 			if(success) {
 				setState(SocketState.Connected);
 				socketConnectionTries.current = 0;
@@ -60,9 +60,9 @@ export const SocketProvider = ({ children, userID, publicKey, privateKey }: Para
 			}
 		});
 
-		const unsubListenEvent = socketBus.on(ID.ASListen, (events) => {
+		const unsubListenEvent = socketBus.on(ID.WSListen, (events) => {
 			socketBus.on("connected", async() => {
-				socket?.send(await encryptPacket(ASListenPacket(events)));
+				socket?.send(await encryptPacket(WSListenPacket(events)));
 			});
 		});
 
@@ -78,10 +78,10 @@ export const SocketProvider = ({ children, userID, publicKey, privateKey }: Para
 				sendConnectedToast.current = true;
 			}
 
-			const ws = new WebSocket("wss://app.server.aesterisk.io");
+			const ws = new WebSocket("wss://web.server.aesterisk.io");
 
 			ws.onopen = async() => {
-				ws.send(await encryptPacket(ASAuthPacket({
+				ws.send(await encryptPacket(WSAuthPacket({
 					user_id: userID,
 					public_key: publicKey,
 				})));
@@ -106,16 +106,16 @@ export const SocketProvider = ({ children, userID, publicKey, privateKey }: Para
 
 					if(packet.version === Version.V0_1_0) {
 						switch(packet.id) {
-							case ID.SAAuthResponse: {
-								socketBus.emit(ID.SAAuthResponse, packet.data as SAAuthResponseData);
+							case ID.SWAuthResponse: {
+								socketBus.emit(ID.SWAuthResponse, packet.data as SWAuthResponseData);
 								break;
 							}
-							case ID.SAHandshakeRequest: {
-								socketBus.emit(ID.SAHandshakeRequest, packet.data as SAHandshakeRequestData);
+							case ID.SWHandshakeRequest: {
+								socketBus.emit(ID.SWHandshakeRequest, packet.data as SWHandshakeRequestData);
 								break;
 							}
-							case ID.SAEvent: {
-								socketBus.emit(ID.SAEvent, packet.data as Event);
+							case ID.SWEvent: {
+								socketBus.emit(ID.SWEvent, packet.data as Event);
 								break;
 							}
 							default: {

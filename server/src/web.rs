@@ -8,34 +8,34 @@ use sqlx::PgPool;
 use tokio::net::{TcpListener, TcpStream};
 use tokio_tungstenite::{tungstenite::{self, Message}, WebSocketStream};
 
-use packet::{app_server::{auth::ASAuthPacket, handshake_response::ASHandshakeResponsePacket, listen::ASListenPacket}, server_app::{auth_response::SAAuthResponsePacket, handshake_request::SAHandshakeRequestPacket}, ListenEvent, Packet, ID};
+use packet::{web_server::{auth::WSAuthPacket, handshake_response::WSHandshakeResponsePacket, listen::WSListenPacket}, server_web::{auth_response::SWAuthResponsePacket, handshake_request::SWHandshakeRequestPacket}, ListenEvent, Packet, ID};
 use tracing::{debug, error, info, warn};
 
 use crate::{CONFIG, DECRYPTER};
 
-struct AppClient {
+struct WebClient {
     listens: Vec<ListenEvent>,
 }
 
-struct AppHandshake {
+struct WebHandshake {
     user_id: u32,
     encrypter: RsaesJweEncrypter,
     challenge: String,
 }
 
-struct AppSocket {
+struct WebSocket {
     tx: Tx,
-    handshake: Option<AppHandshake>,
-    authed: Option<AppClient>,
+    handshake: Option<WebHandshake>,
+    authed: Option<WebClient>,
 }
 
 type Tx = mpsc::UnboundedSender<Message>;
 type Rx = mpsc::UnboundedReceiver<Message>;
-type ChannelMap = Arc<RwLock<HashMap<SocketAddr, AppSocket>>>;
+type ChannelMap = Arc<RwLock<HashMap<SocketAddr, WebSocket>>>;
 type KeyCache = Arc<Mutex<HashMap<u32, Arc<Vec<u8>>>>>;
 
 pub async fn start(pool: PgPool) {
-    let try_socket = TcpListener::bind(&CONFIG.sockets.app).await;
+    let try_socket = TcpListener::bind(&CONFIG.sockets.web).await;
     let listener = match try_socket {
         Ok(listener) => listener,
         Err(e) => {
@@ -44,7 +44,7 @@ pub async fn start(pool: PgPool) {
         }
     };
 
-    info!("Listening on: {}", &CONFIG.sockets.app);
+    info!("Listening on: {}", &CONFIG.sockets.web);
 
     let channel_map = ChannelMap::new(RwLock::new(HashMap::new()));
     let key_cache = KeyCache::new(Mutex::new(HashMap::new()));
@@ -87,7 +87,7 @@ fn error_to_string(e: tungstenite::Error) -> String {
     }
 }
 
-#[tracing::instrument(name = "app", skip(raw_stream, channel_map, key_cache, pool), fields(%addr))]
+#[tracing::instrument(name = "web", skip(raw_stream, channel_map, key_cache, pool), fields(%addr))]
 async fn accept_connection(raw_stream: TcpStream, addr: SocketAddr, channel_map: ChannelMap, key_cache: KeyCache, pool: PgPool) -> Result<(), String> {
     info!("Accepted TCP connection");
 
@@ -96,7 +96,7 @@ async fn accept_connection(raw_stream: TcpStream, addr: SocketAddr, channel_map:
     let (write, read) = stream.split();
 
     let (tx, rx) = unbounded();
-    channel_map.write().map_err(|_| "channel_map has been poisoned")?.insert(addr, AppSocket {
+    channel_map.write().map_err(|_| "channel_map has been poisoned")?.insert(addr, WebSocket {
         tx,
         authed: None,
         handshake: None,
@@ -146,19 +146,19 @@ async fn handle_client(write: SplitSink<WebSocketStream<TcpStream>, Message>, re
     Ok(())
 }
 
-#[tracing::instrument(name = "app", skip(msg, channel_map, key_cache, pool), fields(%addr))]
+#[tracing::instrument(name = "web", skip(msg, channel_map, key_cache, pool), fields(%addr))]
 async fn handle_packet(msg: String, addr: SocketAddr, channel_map: ChannelMap, key_cache: KeyCache, pool: PgPool) -> Result<(), String> {
     let packet = decrypt_packet(&msg, &DECRYPTER)?;
 
     match packet.id {
-        ID::ASAuth => {
-            handle_auth(ASAuthPacket::parse(packet).expect("ASAuthPacket should be Some"), addr, channel_map, key_cache, pool).await
+        ID::WSAuth => {
+            handle_auth(WSAuthPacket::parse(packet).expect("WSAuthPacket should be Some"), addr, channel_map, key_cache, pool).await
         },
-        ID::ASHandshakeResponse => {
-            handle_handshake_response(ASHandshakeResponsePacket::parse(packet).expect("ASHandshakeResponsePacket should be Some"), addr, channel_map).await
+        ID::WSHandshakeResponse => {
+            handle_handshake_response(WSHandshakeResponsePacket::parse(packet).expect("WSHandshakeResponsePacket should be Some"), addr, channel_map).await
         }
-        ID::ASListen => {
-            handle_listen(ASListenPacket::parse(packet).expect("ASListenPacket should be Some"), addr, channel_map).await
+        ID::WSListen => {
+            handle_listen(WSListenPacket::parse(packet).expect("WSListenPacket should be Some"), addr, channel_map).await
         },
         _ => {
             Err(format!("Should not receive [SD]* packet: {:?}", packet.id))
@@ -185,7 +185,7 @@ fn decrypt_packet(msg: &str, decrypter: &RsaesJweDecrypter) -> Result<Packet, St
     let (payload, _) = jwt::decode_with_decrypter(msg, decrypter).map_err(|_| "should decrypt")?;
 
     let mut validator = JwtPayloadValidator::new();
-    validator.set_issuer("aesterisk/app");
+    validator.set_issuer("aesterisk/web");
     validator.set_base_time(SystemTime::now());
     validator.set_min_issued_time(SystemTime::now() - Duration::from_secs(60));
     validator.set_max_issued_time(SystemTime::now());
@@ -217,7 +217,7 @@ async fn query_user_public_key(user_id: u32, key_cache: KeyCache, pool: PgPool) 
     Ok(cache.get(&user_id).ok_or("key should be in cache")?.clone())
 }
 
-async fn handle_auth(auth_packet: ASAuthPacket, addr: SocketAddr, channel_map: ChannelMap, key_cache: KeyCache, pool: PgPool) -> Result<(), String> {
+async fn handle_auth(auth_packet: WSAuthPacket, addr: SocketAddr, channel_map: ChannelMap, key_cache: KeyCache, pool: PgPool) -> Result<(), String> {
     let mut challenge_bytes = [0; 256];
     rand_bytes(&mut challenge_bytes).map_err(|_| "Could not generate challenge")?;
     let challenge = challenge_bytes.iter().map(|byte| format!("{:02X}", byte)).collect::<String>();
@@ -227,7 +227,7 @@ async fn handle_auth(auth_packet: ASAuthPacket, addr: SocketAddr, channel_map: C
     let mut clients = channel_map.write().map_err(|_| "channel_map has been poisoned")?;
     let client = clients.get_mut(&addr).ok_or("Client not found in channel_map")?;
 
-    client.handshake = Some(AppHandshake {
+    client.handshake = Some(WebHandshake {
         user_id: auth_packet.user_id,
         encrypter: josekit::jwe::RSA_OAEP.encrypter_from_pem(key.as_ref()).map_err(|_| "key should be valid")?,
         challenge: challenge.clone(),
@@ -236,9 +236,9 @@ async fn handle_auth(auth_packet: ASAuthPacket, addr: SocketAddr, channel_map: C
     client.tx.unbounded_send(
         Message::text(
             encrypt_packet(
-                SAHandshakeRequestPacket {
+                SWHandshakeRequestPacket {
                     challenge
-                }.to_packet(),
+                }.to_packet()?,
                 &client.handshake.as_ref().ok_or("Client hasn't requested authentication")?.encrypter,
             )?
         )
@@ -247,7 +247,7 @@ async fn handle_auth(auth_packet: ASAuthPacket, addr: SocketAddr, channel_map: C
     Ok(())
 }
 
-async fn handle_handshake_response(handshake_reponse_packet: ASHandshakeResponsePacket, addr: SocketAddr, channel_map: ChannelMap) -> Result<(), String> {
+async fn handle_handshake_response(handshake_reponse_packet: WSHandshakeResponsePacket, addr: SocketAddr, channel_map: ChannelMap) -> Result<(), String> {
     let mut clients = channel_map.write().map_err(|_| "channel_map has been poisoned")?;
     let client = clients.get_mut(&addr).ok_or("Client not found in channel_map")?;
 
@@ -262,22 +262,22 @@ async fn handle_handshake_response(handshake_reponse_packet: ASHandshakeResponse
     client.tx.unbounded_send(
         Message::text(
             encrypt_packet(
-                SAAuthResponsePacket {
+                SWAuthResponsePacket {
                     success: true,
-                }.to_packet(),
+                }.to_packet()?,
                 &client.handshake.as_ref().ok_or("Client hasn't requested authentication")?.encrypter,
             )?
         )
     ).map_err(|_| "Failed to send packet")?;
 
-    client.authed = Some(AppClient {
+    client.authed = Some(WebClient {
         listens: Vec::new(),
     });
 
     Ok(())
 }
 
-async fn handle_listen(listen_packet: ASListenPacket, addr: SocketAddr, channel_map: ChannelMap) -> Result<(), String> {
+async fn handle_listen(listen_packet: WSListenPacket, addr: SocketAddr, channel_map: ChannelMap) -> Result<(), String> {
     let mut clients = channel_map.write().map_err(|_| "channel_map has been poisoned")?;
     let client = clients.get_mut(&addr).ok_or("Client not found in channel_map")?;
 

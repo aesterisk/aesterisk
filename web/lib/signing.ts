@@ -11,7 +11,7 @@ export async function encryptPacket(packet: object): Promise<string> {
 			enc: "A256GCM",
 		})
 		.setIssuedAt()
-		.setIssuer("aesterisk/app")
+		.setIssuer("aesterisk/web")
 		.setExpirationTime("1 minute")
 		.encrypt(await getServerPublicKey());
 }
