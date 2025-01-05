@@ -1,38 +1,29 @@
-use std::{collections::HashMap, net::SocketAddr, sync::{Arc, Mutex, RwLock}, time::{Duration, SystemTime}};
+use std::{collections::{HashMap, HashSet}, net::SocketAddr, sync::Arc, time::{Duration, SystemTime}};
 
-use futures_channel::mpsc::{self, unbounded};
+use futures_channel::mpsc::unbounded;
 use futures_util::{future, pin_mut, stream::{SplitSink, SplitStream}, FutureExt, StreamExt, TryStreamExt};
 use josekit::{jwe::{alg::rsaes::{RsaesJweDecrypter, RsaesJweEncrypter}, JweHeader}, jwt::{self, JwtPayload, JwtPayloadValidator}};
 use openssl::rand::rand_bytes;
-use sqlx::PgPool;
+use sqlx::{types::Uuid, PgPool};
 use tokio::net::{TcpListener, TcpStream};
 use tokio_tungstenite::{tungstenite::{self, Message}, WebSocketStream};
 
-use packet::{web_server::{auth::WSAuthPacket, handshake_response::WSHandshakeResponsePacket, listen::WSListenPacket}, server_web::{auth_response::SWAuthResponsePacket, handshake_request::SWHandshakeRequestPacket}, ListenEvent, Packet, ID};
+use packet::{events::{EventData, EventType, NodeStatusEvent}, server_daemon::listen::SDListenPacket, server_web::{auth_response::SWAuthResponsePacket, handshake_request::SWHandshakeRequestPacket}, web_server::{auth::WSAuthPacket, handshake_response::WSHandshakeResponsePacket, listen::WSListenPacket}, Packet, ID};
+#[allow(unused_imports)]
 use tracing::{debug, error, info, warn};
 
-use crate::{CONFIG, DECRYPTER};
+use crate::{daemon::send_event_from_server, Rx, Tx, CONFIG, DAEMON_CHANNEL_MAP, DAEMON_ID_MAP, DAEMON_LISTEN_MAP, DECRYPTER, WEB_CHANNEL_MAP, WEB_KEY_CACHE, WEB_LISTEN_MAP};
 
-struct WebClient {
-    listens: Vec<ListenEvent>,
-}
-
-struct WebHandshake {
+pub struct WebHandshake {
     user_id: u32,
-    encrypter: RsaesJweEncrypter,
+    pub encrypter: RsaesJweEncrypter,
     challenge: String,
 }
 
-struct WebSocket {
-    tx: Tx,
-    handshake: Option<WebHandshake>,
-    authed: Option<WebClient>,
+pub struct WebSocket {
+    pub tx: Tx,
+    pub handshake: Option<WebHandshake>,
 }
-
-type Tx = mpsc::UnboundedSender<Message>;
-type Rx = mpsc::UnboundedReceiver<Message>;
-type ChannelMap = Arc<RwLock<HashMap<SocketAddr, WebSocket>>>;
-type KeyCache = Arc<Mutex<HashMap<u32, Arc<Vec<u8>>>>>;
 
 pub async fn start(pool: PgPool) {
     let try_socket = TcpListener::bind(&CONFIG.sockets.web).await;
@@ -46,15 +37,12 @@ pub async fn start(pool: PgPool) {
 
     info!("Listening on: {}", &CONFIG.sockets.web);
 
-    let channel_map = ChannelMap::new(RwLock::new(HashMap::new()));
-    let key_cache = KeyCache::new(Mutex::new(HashMap::new()));
-
     loop {
         let conn = listener.accept().await;
 
         match conn {
             Ok((stream, addr)) => {
-                tokio::spawn(accept_connection(stream, addr, channel_map.clone(), key_cache.clone(), pool.clone()).then(|res| match res {
+                tokio::spawn(accept_connection(stream, addr, pool.clone()).then(|res| match res {
                     Ok(_) => future::ready(()),
                     Err(e) => {
                         error!("Error in connection: {}", e);
@@ -87,8 +75,8 @@ fn error_to_string(e: tungstenite::Error) -> String {
     }
 }
 
-#[tracing::instrument(name = "web", skip(raw_stream, channel_map, key_cache, pool), fields(%addr))]
-async fn accept_connection(raw_stream: TcpStream, addr: SocketAddr, channel_map: ChannelMap, key_cache: KeyCache, pool: PgPool) -> Result<(), String> {
+#[tracing::instrument(name = "web", skip(raw_stream, pool), fields(%addr))]
+async fn accept_connection(raw_stream: TcpStream, addr: SocketAddr, pool: PgPool) -> Result<(), String> {
     info!("Accepted TCP connection");
 
     let stream = tokio_tungstenite::accept_async(raw_stream).await.map_err(|e| format!("Could not accept connection: {}", error_to_string(e)))?;
@@ -96,17 +84,26 @@ async fn accept_connection(raw_stream: TcpStream, addr: SocketAddr, channel_map:
     let (write, read) = stream.split();
 
     let (tx, rx) = unbounded();
-    channel_map.write().map_err(|_| "channel_map has been poisoned")?.insert(addr, WebSocket {
+    #[cfg(feature = "lock_debug")]
+    debug!("[{}:{}] awaiting WEB_CHANNEL_MAP", file!(), line!());
+    WEB_CHANNEL_MAP.write().await.insert(addr, WebSocket {
         tx,
-        authed: None,
         handshake: None,
     });
 
-    handle_client(write, read, addr, rx, channel_map, key_cache, pool).await
+    #[cfg(feature = "lock_debug")]
+    debug!("[{}:{}] got WEB_CHANNEL_MAP", file!(), line!());
+
+    handle_client(write, read, addr, rx, pool).await?;
+
+    #[cfg(feature = "lock_debug")]
+    debug!("[{}:{}] dropped WEB_CHANNEL_MAP", file!(), line!());
+
+    Ok(())
 }
 
 
-async fn handle_client(write: SplitSink<WebSocketStream<TcpStream>, Message>, read: SplitStream<WebSocketStream<TcpStream>>, addr: SocketAddr, rx: Rx, channel_map: ChannelMap, key_cache: KeyCache, pool: PgPool) -> Result<(), String> {
+async fn handle_client(write: SplitSink<WebSocketStream<TcpStream>, Message>, read: SplitStream<WebSocketStream<TcpStream>>, addr: SocketAddr, rx: Rx, pool: PgPool) -> Result<(), String> {
     info!("Established WebSocket connection");
 
     let incoming = read.try_filter(|msg| future::ready(msg.is_text())).for_each(|msg| async {
@@ -126,7 +123,7 @@ async fn handle_client(write: SplitSink<WebSocketStream<TcpStream>, Message>, re
             }
         };
 
-        tokio::spawn(handle_packet(text, addr, channel_map.clone(), key_cache.clone(), pool.clone()).then(|res| match res {
+        tokio::spawn(handle_packet(text, addr, pool.clone()).then(|res| match res {
             Ok(_) => future::ready(()),
             Err(e) => {
                 error!("Error handling packet: {}", e);
@@ -140,25 +137,81 @@ async fn handle_client(write: SplitSink<WebSocketStream<TcpStream>, Message>, re
     pin_mut!(incoming, outgoing);
     future::select(incoming, outgoing).await;
 
-    channel_map.write().map_err(|_| "channel_map has been poisoned")?.remove(&addr);
+    let mut update_daemons = HashSet::new();
+
+    {
+        #[cfg(feature = "lock_debug")]
+        debug!("[{}:{}] awaiting WEB_LISTEN_MAP", file!(), line!());
+        let web_listen_map = WEB_LISTEN_MAP.read().await;
+        #[cfg(feature = "lock_debug")]
+        debug!("[{}:{}] got WEB_LISTEN_MAP", file!(), line!());
+        #[cfg(feature = "lock_debug")]
+        debug!("[{}:{}] awaiting DAEMON_LISTEN_MAP", file!(), line!());
+        let mut daemon_listen_map = DAEMON_LISTEN_MAP.write().await;
+        #[cfg(feature = "lock_debug")]
+        debug!("[{}:{}] got DAEMON_LISTEN_MAP", file!(), line!());
+        #[cfg(feature = "lock_debug")]
+        debug!("[{}:{}] awaiting WEB_CHANNEL_MAP", file!(), line!());
+        let mut web_channel_map = WEB_CHANNEL_MAP.write().await;
+        #[cfg(feature = "lock_debug")]
+        debug!("[{}:{}] got WEB_CHANNEL_MAP", file!(), line!());
+
+        web_channel_map.remove(&addr);
+        if let Some(listen_map) = web_listen_map.get(&addr) {
+            for (event, daemons) in listen_map.into_iter() {
+                for daemon in daemons.into_iter() {
+                    update_daemons.insert(daemon.clone());
+
+                    let listen_map = daemon_listen_map.get_mut(daemon).ok_or("daemon not found in DaemonListenMap")?;
+                    let event_map = listen_map.get_mut(event).ok_or("event not found in DaemonListenMap")?;
+
+                    event_map.remove(&addr);
+
+                    if event_map.is_empty() {
+                        listen_map.remove(event);
+                    }
+                }
+            }
+        }
+
+        #[cfg(feature = "lock_debug")]
+        debug!("[{}:{}] dropped WEB_CHANNEL_MAP", file!(), line!());
+        #[cfg(feature = "lock_debug")]
+        debug!("[{}:{}] dropped DAEMON_LISTEN_MAP", file!(), line!());
+        #[cfg(feature = "lock_debug")]
+        debug!("[{}:{}] dropped WEB_LISTEN_MAP", file!(), line!());
+    }
+
+    for daemon in update_daemons {
+        #[cfg(feature = "lock_debug")]
+        debug!("[{}:{}] awaiting DAEMON_ID_MAP", file!(), line!());
+        if let Some(daemon_addr) = DAEMON_ID_MAP.read().await.get(&daemon) {
+            update_listens_for_daemon(daemon_addr, &daemon).await?;
+        }
+        #[cfg(feature = "lock_debug")]
+        debug!("[{}:{}] got DAEMON_ID_MAP", file!(), line!());
+        #[cfg(feature = "lock_debug")]
+        debug!("[{}:{}] dropped DAEMON_ID_MAP", file!(), line!());
+    }
+
     info!("Disconnected");
 
     Ok(())
 }
 
-#[tracing::instrument(name = "web", skip(msg, channel_map, key_cache, pool), fields(%addr))]
-async fn handle_packet(msg: String, addr: SocketAddr, channel_map: ChannelMap, key_cache: KeyCache, pool: PgPool) -> Result<(), String> {
+#[tracing::instrument(name = "web", skip(msg, pool), fields(%addr))]
+async fn handle_packet(msg: String, addr: SocketAddr, pool: PgPool) -> Result<(), String> {
     let packet = decrypt_packet(&msg, &DECRYPTER)?;
 
     match packet.id {
         ID::WSAuth => {
-            handle_auth(WSAuthPacket::parse(packet).expect("WSAuthPacket should be Some"), addr, channel_map, key_cache, pool).await
+            handle_auth(WSAuthPacket::parse(packet).expect("WSAuthPacket should be Some"), addr, pool).await
         },
         ID::WSHandshakeResponse => {
-            handle_handshake_response(WSHandshakeResponsePacket::parse(packet).expect("WSHandshakeResponsePacket should be Some"), addr, channel_map).await
+            handle_handshake_response(WSHandshakeResponsePacket::parse(packet).expect("WSHandshakeResponsePacket should be Some"), addr).await
         }
         ID::WSListen => {
-            handle_listen(WSListenPacket::parse(packet).expect("WSListenPacket should be Some"), addr, channel_map).await
+            handle_listen(WSListenPacket::parse(packet).expect("WSListenPacket should be Some"), addr).await
         },
         _ => {
             Err(format!("Should not receive [SD]* packet: {:?}", packet.id))
@@ -202,9 +255,9 @@ struct PublicKeyQuery {
     user_public_key: String,
 }
 
-async fn query_user_public_key(user_id: u32, key_cache: KeyCache, pool: PgPool) -> Result<Arc<Vec<u8>>, String> {
+async fn query_user_public_key(user_id: u32, pool: PgPool) -> Result<Arc<Vec<u8>>, String> {
     {
-        let cache = key_cache.lock().map_err(|_| "key_cache has been poisoned")?;
+        let cache = WEB_KEY_CACHE.lock().await;
         if let Some(v) = cache.get(&user_id) {
             return Ok(v.clone());
         }
@@ -212,19 +265,23 @@ async fn query_user_public_key(user_id: u32, key_cache: KeyCache, pool: PgPool) 
 
     let res = sqlx::query_as!(PublicKeyQuery, "SELECT user_public_key FROM aesterisk.users WHERE user_id = $1", user_id as i32).fetch_one(&pool).await.map_err(|_| format!("User with ID {} does not exist", user_id))?;
 
-    let mut cache = key_cache.lock().map_err(|_| "key_cache has been poisoned")?;
+    let mut cache = WEB_KEY_CACHE.lock().await;
     cache.insert(user_id, Arc::new(res.user_public_key.into_bytes()));
     Ok(cache.get(&user_id).ok_or("key should be in cache")?.clone())
 }
 
-async fn handle_auth(auth_packet: WSAuthPacket, addr: SocketAddr, channel_map: ChannelMap, key_cache: KeyCache, pool: PgPool) -> Result<(), String> {
+async fn handle_auth(auth_packet: WSAuthPacket, addr: SocketAddr, pool: PgPool) -> Result<(), String> {
     let mut challenge_bytes = [0; 256];
     rand_bytes(&mut challenge_bytes).map_err(|_| "Could not generate challenge")?;
     let challenge = challenge_bytes.iter().map(|byte| format!("{:02X}", byte)).collect::<String>();
 
-    let key = query_user_public_key(auth_packet.user_id, key_cache, pool).await?;
+    let key = query_user_public_key(auth_packet.user_id, pool).await?;
 
-    let mut clients = channel_map.write().map_err(|_| "channel_map has been poisoned")?;
+    #[cfg(feature = "lock_debug")]
+    debug!("[{}:{}] awaiting WEB_CHANNEL_MAP", file!(), line!());
+    let mut clients = WEB_CHANNEL_MAP.write().await;
+    #[cfg(feature = "lock_debug")]
+    debug!("[{}:{}] got WEB_CHANNEL_MAP", file!(), line!());
     let client = clients.get_mut(&addr).ok_or("Client not found in channel_map")?;
 
     client.handshake = Some(WebHandshake {
@@ -244,11 +301,17 @@ async fn handle_auth(auth_packet: WSAuthPacket, addr: SocketAddr, channel_map: C
         )
     ).map_err(|_| "Failed to send packet")?;
 
+    #[cfg(feature = "lock_debug")]
+    debug!("[{}:{}] dropped WEB_CHANNEL_MAP", file!(), line!());
     Ok(())
 }
 
-async fn handle_handshake_response(handshake_reponse_packet: WSHandshakeResponsePacket, addr: SocketAddr, channel_map: ChannelMap) -> Result<(), String> {
-    let mut clients = channel_map.write().map_err(|_| "channel_map has been poisoned")?;
+async fn handle_handshake_response(handshake_reponse_packet: WSHandshakeResponsePacket, addr: SocketAddr) -> Result<(), String> {
+    #[cfg(feature = "lock_debug")]
+    debug!("[{}:{}] awaiting WEB_CHANNEL_MAP", file!(), line!());
+    let mut clients = WEB_CHANNEL_MAP.write().await;
+    #[cfg(feature = "lock_debug")]
+    debug!("[{}:{}] got WEB_CHANNEL_MAP", file!(), line!());
     let client = clients.get_mut(&addr).ok_or("Client not found in channel_map")?;
 
     if handshake_reponse_packet.challenge != client.handshake.as_ref().ok_or("Client hasn't requested authentication")?.challenge {
@@ -270,26 +333,119 @@ async fn handle_handshake_response(handshake_reponse_packet: WSHandshakeResponse
         )
     ).map_err(|_| "Failed to send packet")?;
 
-    client.authed = Some(WebClient {
-        listens: Vec::new(),
-    });
+    #[cfg(feature = "lock_debug")]
+    debug!("[{}:{}] dropped WEB_CHANNEL_MAP", file!(), line!());
+    Ok(())
+}
+
+async fn handle_listen(listen_packet: WSListenPacket, addr: SocketAddr) -> Result<(), String> {
+    // debug!("Handling listen packet: {:#?}", listen_packet);
+
+    let mut update_daemons = HashSet::new();
+    let mut offline_daemons = HashSet::new();
+
+    #[cfg(feature = "lock_debug")]
+    debug!("[{}:{}] awaiting DAEMON_ID_MAP", file!(), line!());
+    let daemon_id_map = DAEMON_ID_MAP.read().await;
+    #[cfg(feature = "lock_debug")]
+    debug!("[{}:{}] got DAEMON_ID_MAP", file!(), line!());
+
+    {
+        #[cfg(feature = "lock_debug")]
+        debug!("[{}:{}] awaiting WEB_LISTEN_MAP", file!(), line!());
+        let mut web_listen_map = WEB_LISTEN_MAP.write().await;
+        #[cfg(feature = "lock_debug")]
+        debug!("[{}:{}] got WEB_LISTEN_MAP", file!(), line!());
+        #[cfg(feature = "lock_debug")]
+        debug!("[{}:{}] awaiting DAEMON_LISTEN_MAP", file!(), line!());
+        let mut daemon_listen_map = DAEMON_LISTEN_MAP.write().await;
+        #[cfg(feature = "lock_debug")]
+        debug!("[{}:{}] got DAEMON_LISTEN_MAP", file!(), line!());
+
+        for event in listen_packet.events.into_iter() {
+            for daemon in event.daemons.iter() {
+                update_daemons.insert(daemon.clone());
+
+                if let Some(listen_map) = daemon_listen_map.get_mut(daemon) {
+                    if let Some(client_set) = listen_map.get_mut(&event.event) {
+                        client_set.insert(addr);
+                    } else {
+                        listen_map.insert(event.event, HashSet::from([addr]));
+                    }
+                } else {
+                    let mut set = HashSet::new();
+                    set.insert(addr);
+                    let mut listen_map = HashMap::new();
+                    listen_map.insert(event.event, set);
+                    daemon_listen_map.insert(daemon.clone(), listen_map);
+                }
+
+                if event.event == EventType::NodeStatus {
+                    if let None = daemon_id_map.get(&daemon) {
+                        offline_daemons.insert(daemon.clone());
+                    }
+                }
+            }
+
+            if let Some(listen_map) = web_listen_map.get_mut(&addr) {
+                if let Some(daemon_set) = listen_map.get_mut(&event.event) {
+                    for daemon in event.daemons.iter() {
+                        daemon_set.insert(daemon.clone());
+                    }
+                } else {
+                    listen_map.insert(event.event, HashSet::from_iter(event.daemons.into_iter()));
+                }
+            } else {
+                web_listen_map.insert(addr, HashMap::from([(event.event, HashSet::from_iter(event.daemons.into_iter()))]));
+            }
+        }
+
+        #[cfg(feature = "lock_debug")]
+        debug!("[{}:{}] dropped DAEMON_LISTEN_MAP", file!(), line!());
+        #[cfg(feature = "lock_debug")]
+        debug!("[{}:{}] dropped WEB_LISTEN_MAP", file!(), line!());
+    }
+
+    for daemon in offline_daemons.into_iter() {
+        send_event_from_server(&daemon, EventData::NodeStatus(NodeStatusEvent {
+            online: false,
+        })).await?;
+    }
+
+    for daemon in update_daemons.into_iter() {
+        if let Some(daemon_addr) = daemon_id_map.get(&daemon) {
+            update_listens_for_daemon(daemon_addr, &daemon).await?;
+        }
+    }
+
+    #[cfg(feature = "lock_debug")]
+    debug!("[{}:{}] dropped DAEMON_ID_MAP", file!(), line!());
 
     Ok(())
 }
 
-async fn handle_listen(listen_packet: WSListenPacket, addr: SocketAddr, channel_map: ChannelMap) -> Result<(), String> {
-    let mut clients = channel_map.write().map_err(|_| "channel_map has been poisoned")?;
-    let client = clients.get_mut(&addr).ok_or("Client not found in channel_map")?;
+async fn update_listens_for_daemon(addr: &SocketAddr, uuid: &Uuid) -> Result<(), String> {
+    #[cfg(feature = "lock_debug")]
+    debug!("[{}:{}] awaiting DAEMON_CHANNEL_MAP", file!(), line!());
+    let daemon_channel_map = DAEMON_CHANNEL_MAP.read().await;
+    #[cfg(feature = "lock_debug")]
+    debug!("[{}:{}] got DAEMON_CHANNEL_MAP", file!(), line!());
+    let socket = daemon_channel_map.get(addr).ok_or("Daemon not found in DaemonChannelMap")?;
 
-    for event in listen_packet.events.iter() {
-        match event {
-            ListenEvent::NodesList(nodes) => {
-                debug!("Listening for NodesList: {:?}", nodes);
-            }
-        }
-    }
+    #[cfg(feature = "lock_debug")]
+    debug!("[{}:{}] awaiting DAEMON_LISTEN_MAP", file!(), line!());
+    let daemon_listen_map = DAEMON_LISTEN_MAP.read().await;
+    #[cfg(feature = "lock_debug")]
+    debug!("[{}:{}] got DAEMON_LISTEN_MAP", file!(), line!());
+    let events = daemon_listen_map.get(uuid).ok_or("Daemon not found in DaemonListenMap")?.keys().copied().collect::<Vec<_>>();
 
-    client.authed.as_mut().ok_or("Client not authenticated")?.listens = listen_packet.events;
+    socket.tx.unbounded_send(Message::Text(encrypt_packet(SDListenPacket {
+        events
+    }.to_packet()?, &socket.handshake.as_ref().ok_or("Daemon hasn't requested authentication!")?.encrypter)?)).map_err(|_| "Failed to send packet")?;
 
+    #[cfg(feature = "lock_debug")]
+    debug!("[{}:{}] dropped DAEMON_LISTEN_MAP", file!(), line!());
+    #[cfg(feature = "lock_debug")]
+    debug!("[{}:{}] dropped DAEMON_CHANNEL_MAP", file!(), line!());
     Ok(())
 }

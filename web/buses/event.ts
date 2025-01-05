@@ -1,9 +1,11 @@
 import { createEventBus, EventMap } from "@/lib/bus";
-import { EventType, ID, NodeStatus } from "@/types/packets";
+import { ID } from "@/packets/packet";
 import { socketBus } from "./socket";
+import { EventOf, EventType } from "@/packets/events";
 
-interface EventsBus extends EventMap {
-	[EventType.NodesList]: (payload: NodeStatus[])=> void;
+export interface EventsBus extends EventMap {
+	// todo: this looks like a nice typescript type defenition to make generic ...
+	[EventType.NodeStatus]: (payload: EventOf<EventType.NodeStatus>)=> void;
 }
 
 export const eventsBus = createEventBus<EventsBus>({
@@ -11,19 +13,18 @@ export const eventsBus = createEventBus<EventsBus>({
 		console.error(e);
 	},
 	preListen: (key, _handler, preParams) => {
-		if(key === EventType.NodesList) {
-			socketBus.on("connected", () => {
-				socketBus.emit(
-					ID.WSListen,
-					[
-						{
-							type: EventType.NodesList,
-							data: preParams,
-						},
-					],
-				);
-			});
-		}
+		socketBus.on("connected", () => {
+			socketBus.emit(
+				ID.WSListen,
+				[
+					{
+						// ... which would make this perfect
+						event: key as EventType,
+						daemons: preParams,
+					},
+				],
+			);
+		});
 
 		return false;
 	},

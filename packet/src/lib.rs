@@ -1,3 +1,4 @@
+pub mod events;
 pub mod web_server;
 pub mod server_web;
 pub mod daemon_server;
@@ -65,20 +66,4 @@ impl Packet {
     pub fn to_string(&self) -> String {
         serde_json::to_string(&self).expect("failed to serialize packet")
     }
-}
-
-#[derive(serde::Serialize, serde::Deserialize, Debug)]
-pub struct NodeStatus {
-    pub id: u32,
-    pub status: bool,
-}
-
-#[derive(serde::Serialize, serde::Deserialize, Debug)]
-pub enum Event {
-    NodesList(Vec<NodeStatus>),
-}
-
-#[derive(serde::Serialize, serde::Deserialize, Debug)]
-pub enum ListenEvent {
-    NodesList(Vec<u32>),
 }

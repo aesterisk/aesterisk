@@ -3,7 +3,6 @@ use crate::{Packet, Version, ID};
 #[derive(serde::Serialize, serde::Deserialize, Debug)]
 pub struct WSAuthPacket {
     pub user_id: u32,
-    pub public_key: String,
 }
 
 impl WSAuthPacket {

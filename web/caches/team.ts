@@ -1,9 +1,12 @@
 import { UserTeam } from "@/types/team";
 import { getAccount } from "@/caches/account";
 import { redirect } from "next/navigation";
+import { unstable_cacheLife as cacheLife, unstable_cacheTag as cacheTag } from "next/cache";
 
 async function getCachedTeam(path: string, personalTeam: UserTeam, otherTeams: UserTeam[]) {
 	"use cache";
+	cacheLife("hours");
+	cacheTag(`team-${path}`);
 
 	if(path === "personal") {
 		return personalTeam;

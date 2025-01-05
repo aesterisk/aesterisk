@@ -4,9 +4,14 @@ import { ReactNode, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { socketBus } from "@/buses/socket";
 import { dev } from "@/lib/dev";
-import { WSAuthPacket, WSHandshakeResponsePacket, WSListenPacket, Event, ID, SWAuthResponseData, SWHandshakeRequestData, Version } from "@/types/packets";
 import { importPKCS8 } from "jose";
 import { decryptPacket, encryptPacket } from "@/lib/signing";
+import { ID, Version } from "@/packets/packet";
+import { SWHandshakeRequestData, WSHandshakeResponsePacket } from "@/packets/handshake";
+import { WSListenPacket } from "@/packets/listen";
+import { SWAuthResponseData, WSAuthPacket } from "@/packets/auth";
+import { Event } from "@/packets/events";
+import { eventsBus } from "@/buses/event";
 
 enum SocketState {
 	NotConnected,
@@ -66,6 +71,10 @@ export const SocketProvider = ({ children, userID, publicKey, privateKey }: Para
 			});
 		});
 
+		const unsubEvent = socketBus.on(ID.SWEvent, (event) => {
+			eventsBus.emit(Object.keys(event.event)[0], event);
+		});
+
 		if(!socket && socketConnectionTries.current < MAX_SOCKET_CONNECTION_TRIES
 			&& (state === SocketState.NotConnected || state === SocketState.Retrying) && !connecting.current
 		) {
@@ -83,7 +92,6 @@ export const SocketProvider = ({ children, userID, publicKey, privateKey }: Para
 			ws.onopen = async() => {
 				ws.send(await encryptPacket(WSAuthPacket({
 					user_id: userID,
-					public_key: publicKey,
 				})));
 			};
 
@@ -157,6 +165,7 @@ export const SocketProvider = ({ children, userID, publicKey, privateKey }: Para
 				socket.close();
 			}
 
+			unsubEvent();
 			unsubListenEvent();
 			unsubHandshakeRequest();
 			unsubAuthResponse();

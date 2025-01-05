@@ -1,8 +1,11 @@
-use crate::{Packet, Version, ID};
+use uuid::Uuid;
+
+use crate::{events::EventData, Packet, Version, ID};
 
 #[derive(serde::Serialize, serde::Deserialize, Debug)]
 pub struct SWEventPacket {
-    pub data: serde_json::Value,
+    pub event: EventData,
+    pub daemon: Uuid,
 }
 
 impl SWEventPacket {

@@ -1,11 +1,12 @@
-use std::{fs, io, sync::{Arc, Mutex}, thread, time::{Duration, SystemTime}};
+use std::{fs, io, sync::Arc, thread, time::{Duration, SystemTime}};
 
 use config::Config;
 use futures_channel::mpsc::{self, unbounded};
 use futures_util::{future, join, pin_mut, FutureExt, StreamExt, TryStreamExt};
 use josekit::{jwe::{self, alg::rsaes::{RsaesJweDecrypter, RsaesJweEncrypter}, JweHeader}, jwk::alg::rsa::RsaKeyPair, jwt::{self, JwtPayload, JwtPayloadValidator}};
 use lazy_static::lazy_static;
-use packet::{daemon_server::{auth::DSAuthPacket, handshake_response::DSHandshakeResponsePacket}, server_daemon::{auth_response::SDAuthResponsePacket, handshake_request::SDHandshakeRequestPacket, listen::SDListenPacket}, Packet, ID};
+use packet::{daemon_server::{auth::DSAuthPacket, event::DSEventPacket, handshake_response::DSHandshakeResponsePacket}, events::{EventData, EventType, NodeStatusEvent}, server_daemon::{auth_response::SDAuthResponsePacket, handshake_request::SDHandshakeRequestPacket, listen::SDListenPacket}, Packet, ID};
+use tokio::sync::{Mutex, RwLock};
 use tokio_tungstenite::tungstenite::{self, Message};
 use tracing::{debug, error, info, warn, Level};
 use tracing_appender::rolling::Rotation;
@@ -22,6 +23,7 @@ lazy_static! {
     static ref CONFIG: Config = config::load_or_create("config.toml");
     static ref DECRYPTER: josekit::jwe::alg::rsaes::RsaesJweDecrypter = get_decrypter(&CONFIG).expect("Failed to make decrypter");
     static ref ENCRYPTER: josekit::jwe::alg::rsaes::RsaesJweEncrypter = get_encrypter(&CONFIG).expect("Failed to make encrypter");
+    static ref LISTENS: Arc<RwLock<Vec<EventType>>> = Arc::new(RwLock::new(Vec::new()));
 }
 
 fn get_decrypter(config: &Config) -> Result<RsaesJweDecrypter, String> {
@@ -85,8 +87,11 @@ async fn main() {
     let sender = Arc::new(Mutex::new(None));
 
     let server_connector_handle = tokio::spawn(start_server_connector(sender.clone()));
+    let status_sender_handle = tokio::spawn(start_status_sender(sender.clone()));
 
-    join!(server_connector_handle).0.expect("failed to join handle");
+    let (server_connector_handle_res, status_sender_handle_res) = join!(server_connector_handle, status_sender_handle);
+    server_connector_handle_res.expect("failed to join server connector");
+    status_sender_handle_res.expect("failed to join status sender");
 
     warn!("Shutting down...");
 }
@@ -100,8 +105,9 @@ async fn start_server_connector(sender: Sender) {
         }
 
         let (tx, rx) = unbounded();
-        sender.lock().expect("failed to gain lock").replace(tx);
+        sender.lock().await.replace(tx);
 
+        *LISTENS.write().await = Vec::new();
         let (join,) = join!(tokio::spawn(connect_to_server(rx, sender.clone())));
 
         match join {
@@ -212,7 +218,7 @@ fn encrypt_packet(packet: Packet, encrypter: &RsaesJweEncrypter) -> Result<Strin
     Ok(jwt::encode_with_encrypter(&payload, &header, encrypter).map_err(|_| "could not encrypt token")?)
 }
 
-fn decrypt_packet(msg: &str, decrypter: &RsaesJweDecrypter, sender: Sender) -> Result<Packet, String> {
+async fn decrypt_packet(msg: &str, decrypter: &RsaesJweDecrypter, sender: Sender) -> Result<Packet, String> {
     let (payload, _) = jwt::decode_with_decrypter(msg, decrypter).expect("should decrypt");
 
     let mut validator = JwtPayloadValidator::new();
@@ -224,7 +230,7 @@ fn decrypt_packet(msg: &str, decrypter: &RsaesJweDecrypter, sender: Sender) -> R
     match validator.validate(&payload) {
         Ok(()) => (),
         Err(e) => {
-            sender.lock().map_err(|_| "sender has been poisoned")?.as_ref().ok_or("Client not found in channel_map")?.close_channel();
+            sender.lock().await.as_ref().ok_or("Client not found in channel_map")?.close_channel();
             return Err(format!("Invalid token: {}", e));
         }
     }
@@ -236,7 +242,7 @@ fn decrypt_packet(msg: &str, decrypter: &RsaesJweDecrypter, sender: Sender) -> R
 }
 
 async fn handle_connection(sender: Sender) -> Result<(), String> {
-    sender.lock().map_err(|_| "sender has been poisoned")?.as_ref().ok_or("sender is not available")?.unbounded_send(
+    sender.lock().await.as_ref().ok_or("sender is not available")?.unbounded_send(
         Message::Text(
             encrypt_packet(
                 DSAuthPacket {
@@ -251,7 +257,7 @@ async fn handle_connection(sender: Sender) -> Result<(), String> {
 }
 
 async fn handle_packet(msg: String, sender: Sender) -> Result<(), String> {
-    let packet = decrypt_packet(&msg, &DECRYPTER, sender.clone())?;
+    let packet = decrypt_packet(&msg, &DECRYPTER, sender.clone()).await?;
 
     debug!("Received Packet {:?}", packet.id);
 
@@ -282,7 +288,7 @@ async fn handle_auth_response(auth_response_packet: SDAuthResponsePacket) -> Res
 }
 
 async fn handle_handshake_request(handshake_request_packet: SDHandshakeRequestPacket, sender: Sender) -> Result<(), String> {
-    sender.lock().map_err(|_| "sender has been poisoned")?.as_ref().ok_or("sender is not available")?.unbounded_send(
+    sender.lock().await.as_ref().ok_or("sender is not available")?.unbounded_send(
         Message::Text(
             encrypt_packet(
                 DSHandshakeResponsePacket {
@@ -297,7 +303,54 @@ async fn handle_handshake_request(handshake_request_packet: SDHandshakeRequestPa
 }
 
 async fn handle_listen(listen_packet: SDListenPacket) -> Result<(), String> {
-    info!("Listen:\n{:#?}", listen_packet);
+    *LISTENS.write().await = listen_packet.events;
 
     Ok(())
+}
+
+async fn start_status_sender(sender: Sender) {
+    let mut interval = tokio::time::interval(Duration::from_secs(1));
+
+    loop {
+        interval.tick().await;
+
+        if !LISTENS.read().await.contains(&EventType::NodeStatus) {
+            continue;
+        }
+
+        {
+            let sender = sender.lock().await;
+            if let Some(tx) = sender.as_ref() {
+                let packet = DSEventPacket {
+                    data: EventData::NodeStatus(NodeStatusEvent {
+                        online: true,
+                    }),
+                };
+
+                let packet = match packet.to_packet() {
+                    Ok(packet) => packet,
+                    Err(e) => {
+                        error!("Error creating packet: {}", e);
+                        continue;
+                    }
+                };
+
+                let packet = match encrypt_packet(packet, &ENCRYPTER) {
+                    Ok(packet) => packet,
+                    Err(e) => {
+                        error!("Error encrypting packet: {}", e);
+                        continue;
+                    }
+                };
+
+                match tx.unbounded_send(Message::Text(packet)) {
+                    Ok(_) => (),
+                    Err(_) => {
+                        error!("Error sending packet");
+                        continue;
+                    }
+                }
+            }
+        }
+    }
 }
