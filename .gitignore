@@ -58,6 +58,9 @@
 ### MSVC rustc debug info
 /server/*.pdb
 
+### Neovim rust-analyzer config
+/server/.nvim.lua
+
 
 ## aesterisk/packet
 
