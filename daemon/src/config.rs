@@ -3,6 +3,8 @@ pub struct Config {
     #[serde(default)]
     pub daemon: Daemon,
     #[serde(default)]
+    pub server: Server,
+    #[serde(default)]
     pub logging: Logging,
 }
 
@@ -17,8 +19,23 @@ impl Default for Daemon {
     fn default() -> Self {
         Self {
             id: "".to_string(),
-            public_key: "public.pem".to_string(),
-            private_key: "private.pem".to_string(),
+            public_key: "daemon.pub".to_string(),
+            private_key: "daemon.pem".to_string(),
+        }
+    }
+}
+
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+pub struct Server {
+    pub url: String,
+    pub public_key: String,
+}
+
+impl Default for Server {
+    fn default() -> Self {
+        Self {
+            url: "wss://daemon.server.aesterisk.io".to_string(),
+            public_key: "server.pub".to_string(),
         }
     }
 }

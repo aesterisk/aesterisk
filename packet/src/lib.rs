@@ -1,5 +1,6 @@
-pub mod app_server;
-pub mod server_app;
+pub mod events;
+pub mod web_server;
+pub mod server_web;
 pub mod daemon_server;
 pub mod server_daemon;
 
@@ -19,14 +20,18 @@ pub enum Version {
 #[derive(serde_repr::Serialize_repr, serde_repr::Deserialize_repr, Debug, PartialEq)]
 #[repr(u8)]
 pub enum ID {
-    ASAuth = 0,
+    WSAuth = 0,
     DSAuth = 1,
-    SAAuthResponse = 2,
-    SDAuthResponse = 3,
-    ASListen = 4,
-    SDListen = 5,
-    DSEvent = 6,
-    SAEvent = 7,
+    SWHandshakeRequest = 2,
+    SDHandshakeRequest = 3,
+    WSHandshakeResponse = 4,
+    DSHandshakeResponse = 5,
+    SWAuthResponse = 6,
+    SDAuthResponse = 7,
+    WSListen = 8,
+    SDListen = 9,
+    DSEvent = 10,
+    SWEvent = 11,
 }
 
 impl Packet {
@@ -61,20 +66,4 @@ impl Packet {
     pub fn to_string(&self) -> String {
         serde_json::to_string(&self).expect("failed to serialize packet")
     }
-}
-
-#[derive(serde::Serialize, serde::Deserialize, Debug)]
-pub struct NodeStatus {
-    pub id: u32,
-    pub status: bool,
-}
-
-#[derive(serde::Serialize, serde::Deserialize, Debug)]
-pub enum Event {
-    NodesList(Vec<NodeStatus>),
-}
-
-#[derive(serde::Serialize, serde::Deserialize, Debug)]
-pub enum ListenEvent {
-    NodesList(Vec<u32>),
 }

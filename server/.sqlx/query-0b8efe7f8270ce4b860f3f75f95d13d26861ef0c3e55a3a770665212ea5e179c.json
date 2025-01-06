@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT node_public_key FROM aesterisk.nodes WHERE node_uuid = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "node_public_key",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "0b8efe7f8270ce4b860f3f75f95d13d26861ef0c3e55a3a770665212ea5e179c"
+}

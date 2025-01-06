@@ -1,8 +1,8 @@
-use crate::{Event, Packet, Version, ID};
+use crate::{events::EventType, Packet, Version, ID};
 
 #[derive(serde::Serialize, serde::Deserialize, Debug)]
 pub struct SDListenPacket {
-    pub events: Vec<Event>,
+    pub events: Vec<EventType>,
 }
 
 impl SDListenPacket {
@@ -24,9 +24,13 @@ impl SDListenPacket {
         }
     }
 
-    pub fn to_string(&self) -> Result<String, serde_json::Error> {
-        let data = serde_json::to_value(&self).expect("packet data should be serializeable");
-        let packet = Packet::new(Version::V0_1_0, ID::SDListen, data);
-        serde_json::to_string(&packet)
+    pub fn to_packet(&self) -> Result<Packet, String> {
+        let data = serde_json::to_value(&self).map_err(|_| "packet data should be serializeable")?;
+        Ok(Packet::new(Version::V0_1_0, ID::SDListen, data))
+    }
+
+    pub fn to_string(&self) -> Result<String, String> {
+        let packet = self.to_packet()?;
+        Ok(serde_json::to_string(&packet).map_err(|_| "Packet could not be serialized")?)
     }
 }

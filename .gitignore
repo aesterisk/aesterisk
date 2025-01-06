@@ -1,3 +1,6 @@
+# Remove before merge
+/app
+
 # github.com/aesterisk/aesterisk
 
 ## aesterisk
@@ -13,31 +16,34 @@
 /*.pdb
 
 
-## aesterisk/app
+## aesterisk/web
 
 ### Node.js
-/app/node_modules
+/web/node_modules
 
 ### Next.js
-/app/.next
-/app/out
+/web/.next
+/web/out
 
 ### Production
-/app/build
-/app/.vercel
+/web/build
+/web/.vercel
 
 ### TypeScript
-/app/*.tsbuildinfo
-/app/next-env.d.ts
+/web/*.tsbuildinfo
+/web/next-env.d.ts
 
 ### Environment files
-/app/.env*.local
+/web/.env*.local
 
 
 ## aesterisk/server
 
 ### Config
 /server/config.toml
+
+### dotenvy (used by SQLx for development purposes)
+/server/.env
 
 ### Logs
 /server/logs
@@ -51,6 +57,9 @@
 
 ### MSVC rustc debug info
 /server/*.pdb
+
+### Neovim rust-analyzer config
+/server/.nvim.lua
 
 
 ## aesterisk/packet
@@ -84,6 +93,8 @@
 ### MSVC rustc debug info
 /daemon/*.pdb
 
+### Development public keys
+/daemon/*.pub
 
 ## Development
 

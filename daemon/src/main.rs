@@ -1,15 +1,17 @@
-use std::{io, sync::{Arc, Mutex}, thread, time::Duration};
+use std::{fs, io, sync::Arc, thread, time::{Duration, SystemTime}};
 
 use config::Config;
 use futures_channel::mpsc::{self, unbounded};
 use futures_util::{future, join, pin_mut, FutureExt, StreamExt, TryStreamExt};
-use josekit::jwk::alg::rsa::RsaKeyPair;
+use josekit::{jwe::{self, alg::rsaes::{RsaesJweDecrypter, RsaesJweEncrypter}, JweHeader}, jwk::alg::rsa::RsaKeyPair, jwt::{self, JwtPayload, JwtPayloadValidator}};
 use lazy_static::lazy_static;
-use packet::{daemon_server::auth::DSAuthPacket, server_daemon::{auth_response::SDAuthResponsePacket, listen::SDListenPacket}, Packet, ID};
+use packet::{daemon_server::{auth::DSAuthPacket, event::DSEventPacket, handshake_response::DSHandshakeResponsePacket}, events::{EventData, EventType, NodeStatusEvent}, server_daemon::{auth_response::SDAuthResponsePacket, handshake_request::SDHandshakeRequestPacket, listen::SDListenPacket}, Packet, ID};
+use tokio::sync::{Mutex, RwLock};
 use tokio_tungstenite::tungstenite::{self, Message};
 use tracing::{debug, error, info, warn, Level};
 use tracing_appender::rolling::Rotation;
 use tracing_subscriber::{fmt::writer::MakeWriterExt, layer::SubscriberExt, util::SubscriberInitExt};
+use uuid::Uuid;
 
 mod config;
 
@@ -19,33 +21,36 @@ type Sender = Arc<Mutex<Option<Tx>>>;
 
 lazy_static! {
     static ref CONFIG: Config = config::load_or_create("config.toml");
-    static ref PRIVATE_KEY: josekit::jwk::Jwk = read_key_or_exit(&CONFIG);
+    static ref DECRYPTER: josekit::jwe::alg::rsaes::RsaesJweDecrypter = get_decrypter(&CONFIG).expect("Failed to make decrypter");
+    static ref ENCRYPTER: josekit::jwe::alg::rsaes::RsaesJweEncrypter = get_encrypter(&CONFIG).expect("Failed to make encrypter");
+    static ref LISTENS: Arc<RwLock<Vec<EventType>>> = Arc::new(RwLock::new(Vec::new()));
 }
 
-fn read_key_or_exit(config: &Config) -> josekit::jwk::Jwk {
-    match read_key(config) {
-        Ok(key) => key,
-        Err(e) => {
-            eprintln!("{}", e);
-            std::process::exit(1);
+fn get_decrypter(config: &Config) -> Result<RsaesJweDecrypter, String> {
+    match fs::read_to_string(&config.daemon.private_key) {
+        Ok(pem) => {
+            let decrypter = jwe::RSA_OAEP.decrypter_from_pem(pem.into_bytes()).map_err(|_| "Failed to parse PEM")?;
+            info!("Loaded private RSA key from disk");
+            Ok(decrypter)
+        },
+        Err(_) => {
+            let key = RsaKeyPair::generate(2048).map_err(|_| "Failed to generate keys")?;
+            fs::write(&config.daemon.private_key, key.to_pem_private_key()).map_err(|e| format!("Failed to save key to disk: {}", e))?;
+            fs::write(&config.daemon.public_key, key.to_pem_public_key()).map_err(|e| format!("Failed to save key to disk: {}", e))?;
+            info!("Generated RSA keys and saved to disk");
+            Ok(jwe::RSA_OAEP.decrypter_from_pem(key.to_pem_private_key()).map_err(|_| "Failed to parse PEM")?)
         }
     }
 }
 
-fn read_key(config: &Config) -> Result<josekit::jwk::Jwk, String> {
-    match std::fs::read_to_string(&config.daemon.private_key) {
+fn get_encrypter(config: &Config) -> Result<RsaesJweEncrypter, String> {
+    match fs::read_to_string(&config.server.public_key) {
         Ok(pem) => {
-            let key = RsaKeyPair::from_pem(pem).map_err(|_| "Failed to parse PEM")?;
-            info!("Loaded RSA key from disk");
-            Ok(key.to_jwk_private_key())
+            let encrypter = jwe::RSA_OAEP.encrypter_from_pem(pem.into_bytes()).map_err(|_| "Failed to parse PEM")?;
+            info!("Loaded public RSA key from disk");
+            Ok(encrypter)
         },
-        Err(_) => {
-            let key = RsaKeyPair::generate(2048).map_err(|_| "Failed to generate keys")?;
-            std::fs::write(&config.daemon.private_key, key.to_pem_private_key()).map_err(|e| format!("Failed to save key to disk: {}", e))?;
-            std::fs::write(&config.daemon.public_key, key.to_pem_public_key()).map_err(|e| format!("Failed to save key to disk: {}", e))?;
-            info!("Generated RSA keys and saved to disk");
-            Ok(key.to_jwk_private_key())
-        }
+        Err(_) => Err("Public key not specified".to_string())
     }
 }
 
@@ -53,7 +58,7 @@ fn read_key(config: &Config) -> Result<josekit::jwk::Jwk, String> {
 async fn main() {
     // TODO: use clap for overriding options from config file
     // TODO: optionally pass in config path as argument to override default file
-    
+
     let logs_rotation = tracing_appender::rolling::Builder::new().filename_suffix("daemon.aesterisk.log").rotation(Rotation::DAILY).build(&CONFIG.logging.folder).expect("could not initialize file logger");
     let (logs_file, _logs_file_guard) = tracing_appender::non_blocking(logs_rotation);
     let logs_file_layer = tracing_subscriber::fmt::layer().with_writer(logs_file.with_max_level(Level::DEBUG)).with_ansi(false);
@@ -66,18 +71,27 @@ async fn main() {
 
     info!("Starting Aesterisk Daemon v{}", env!("CARGO_PKG_VERSION"));
 
-    let _force_create = &PRIVATE_KEY.to_string();
+    let _force_create = &DECRYPTER.clone();
+    let _force_create = &ENCRYPTER.clone();
 
     if CONFIG.daemon.id.is_empty() {
         warn!("No Daemon ID set, please continue setup process!");
         return;
     }
 
+    if let Err(_) = Uuid::parse_str(&CONFIG.daemon.id) {
+        error!("Daemon ID is incorrectly set! Please check your config file.");
+        return;
+    }
+
     let sender = Arc::new(Mutex::new(None));
 
     let server_connector_handle = tokio::spawn(start_server_connector(sender.clone()));
+    let status_sender_handle = tokio::spawn(start_status_sender(sender.clone()));
 
-    join!(server_connector_handle).0.expect("failed to join handle");
+    let (server_connector_handle_res, status_sender_handle_res) = join!(server_connector_handle, status_sender_handle);
+    server_connector_handle_res.expect("failed to join server connector");
+    status_sender_handle_res.expect("failed to join status sender");
 
     warn!("Shutting down...");
 }
@@ -91,8 +105,9 @@ async fn start_server_connector(sender: Sender) {
         }
 
         let (tx, rx) = unbounded();
-        sender.lock().expect("failed to gain lock").replace(tx);
+        sender.lock().await.replace(tx);
 
+        *LISTENS.write().await = Vec::new();
         let (join,) = join!(tokio::spawn(connect_to_server(rx, sender.clone())));
 
         match join {
@@ -140,7 +155,7 @@ fn error_to_string(e: tungstenite::Error) -> String {
 }
 
 async fn connect_to_server(rx: Rx, sender: Sender) -> Result<(), String> {
-    let (stream, _) = tokio_tungstenite::connect_async("wss://daemon.server.aesterisk.io").await.map_err(|e| format!("Could not connect to server: {}", error_to_string(e)))?;
+    let (stream, _) = tokio_tungstenite::connect_async(&CONFIG.server.url).await.map_err(|e| format!("Could not connect to server: {}", error_to_string(e)))?;
 
     info!("Connected to server");
     let (write, read) = stream.split();
@@ -171,8 +186,7 @@ async fn connect_to_server(rx: Rx, sender: Sender) -> Result<(), String> {
             }
         };
 
-        debug!("Message: {}", text);
-        tokio::spawn(handle_packet(text).then(|res| match res {
+        tokio::spawn(handle_packet(text, sender.clone()).then(|res| match res {
             Ok(()) => future::ready(()),
             Err(e) => {
                 error!("Error handling packet: {}", e);
@@ -189,41 +203,70 @@ async fn connect_to_server(rx: Rx, sender: Sender) -> Result<(), String> {
     Ok(())
 }
 
-async fn handle_connection(sender: Sender) -> Result<(), String> {
-    let auth_packet = DSAuthPacket {
-        id: 1,
-        token: String::from("hi"),
-    };
+fn encrypt_packet(packet: Packet, encrypter: &RsaesJweEncrypter) -> Result<String, String> {
+    let mut header = JweHeader::new();
+    header.set_token_type("JWT");
+    header.set_algorithm("RSA-OAEP");
+    header.set_content_encryption("A256GCM");
 
-    let auth_packet_data = match auth_packet.to_string() {
-        Ok(data) => data,
-        Err(_) => {
-            return Err(format!("Failed to serialize DSAuthPacket"));
+    let mut payload = JwtPayload::new();
+    payload.set_claim("p", Some(serde_json::to_value(packet).map_err(|_| "packet should be serializable")?)).map_err(|_| "should set claim correctly")?;
+    payload.set_issuer("aesterisk/daemon");
+    payload.set_issued_at(&SystemTime::now());
+    payload.set_expires_at(&SystemTime::now().checked_add(Duration::from_secs(60)).ok_or("duration overflow")?);
+
+    Ok(jwt::encode_with_encrypter(&payload, &header, encrypter).map_err(|_| "could not encrypt token")?)
+}
+
+async fn decrypt_packet(msg: &str, decrypter: &RsaesJweDecrypter, sender: Sender) -> Result<Packet, String> {
+    let (payload, _) = jwt::decode_with_decrypter(msg, decrypter).expect("should decrypt");
+
+    let mut validator = JwtPayloadValidator::new();
+    validator.set_issuer("aesterisk/server");
+    validator.set_base_time(SystemTime::now());
+    validator.set_min_issued_time(SystemTime::now() - Duration::from_secs(60));
+    validator.set_max_issued_time(SystemTime::now());
+
+    match validator.validate(&payload) {
+        Ok(()) => (),
+        Err(e) => {
+            sender.lock().await.as_ref().ok_or("Client not found in channel_map")?.close_channel();
+            return Err(format!("Invalid token: {}", e));
         }
-    };
+    }
 
-    sender.lock().map_err(|_| "sender has been poisoned")?.as_ref().ok_or("sender is not available")?.unbounded_send(Message::Text(auth_packet_data)).map_err(|_| "Could not send message")?;
+    // TODO: maybe don't clone hehe
+    let try_packet = Packet::from_value(payload.claim("p").expect("should have .p").clone());
+
+    Ok(try_packet.ok_or(format!("Could not parse packet: \"{}\"", msg))?)
+}
+
+async fn handle_connection(sender: Sender) -> Result<(), String> {
+    sender.lock().await.as_ref().ok_or("sender is not available")?.unbounded_send(
+        Message::Text(
+            encrypt_packet(
+                DSAuthPacket {
+                    daemon_uuid: CONFIG.daemon.id.clone()
+                }.to_packet()?,
+                &ENCRYPTER
+            )?
+        )
+    ).map_err(|_| "Could not send message")?;
 
     Ok(())
 }
 
-async fn handle_packet(msg: String) -> Result<(), String> {
-    debug!("Received packet");
+async fn handle_packet(msg: String, sender: Sender) -> Result<(), String> {
+    let packet = decrypt_packet(&msg, &DECRYPTER, sender.clone()).await?;
 
-    let try_packet = Packet::from_str(&msg);
-
-    let packet = match try_packet {
-        Some(packet) => packet,
-        None => {
-            return Err(format!("Error parsing packet: \"{}\"", msg));
-        }
-    };
-
-    debug!("Packet:\n{:#?}", packet);
+    debug!("Received Packet {:?}", packet.id);
 
     match packet.id {
         ID::SDAuthResponse => {
             handle_auth_response(SDAuthResponsePacket::parse(packet).expect("SDAuthResponsePacket should be Some")).await
+        }
+        ID::SDHandshakeRequest => {
+            handle_handshake_request(SDHandshakeRequestPacket::parse(packet).expect("SDHandshakeRequestPacket should be Some"), sender.clone()).await
         }
         ID::SDListen => {
             handle_listen(SDListenPacket::parse(packet).expect("SDListenPacket should be Some")).await
@@ -235,13 +278,79 @@ async fn handle_packet(msg: String) -> Result<(), String> {
 }
 
 async fn handle_auth_response(auth_response_packet: SDAuthResponsePacket) -> Result<(), String> {
-    info!("Auth Response:\n{:#?}", auth_response_packet);
+    if !auth_response_packet.success {
+        return Err("Unsuccessful auth response".to_string());
+    }
+
+    info!("Authenticated");
+
+    Ok(())
+}
+
+async fn handle_handshake_request(handshake_request_packet: SDHandshakeRequestPacket, sender: Sender) -> Result<(), String> {
+    sender.lock().await.as_ref().ok_or("sender is not available")?.unbounded_send(
+        Message::Text(
+            encrypt_packet(
+                DSHandshakeResponsePacket {
+                    challenge: handshake_request_packet.challenge,
+                }.to_packet()?,
+                &ENCRYPTER
+            )?
+        )
+    ).map_err(|_| "Could not send message")?;
 
     Ok(())
 }
 
 async fn handle_listen(listen_packet: SDListenPacket) -> Result<(), String> {
-    info!("Listen:\n{:#?}", listen_packet);
+    *LISTENS.write().await = listen_packet.events;
 
     Ok(())
+}
+
+async fn start_status_sender(sender: Sender) {
+    let mut interval = tokio::time::interval(Duration::from_secs(1));
+
+    loop {
+        interval.tick().await;
+
+        if !LISTENS.read().await.contains(&EventType::NodeStatus) {
+            continue;
+        }
+
+        {
+            let sender = sender.lock().await;
+            if let Some(tx) = sender.as_ref() {
+                let packet = DSEventPacket {
+                    data: EventData::NodeStatus(NodeStatusEvent {
+                        online: true,
+                    }),
+                };
+
+                let packet = match packet.to_packet() {
+                    Ok(packet) => packet,
+                    Err(e) => {
+                        error!("Error creating packet: {}", e);
+                        continue;
+                    }
+                };
+
+                let packet = match encrypt_packet(packet, &ENCRYPTER) {
+                    Ok(packet) => packet,
+                    Err(e) => {
+                        error!("Error encrypting packet: {}", e);
+                        continue;
+                    }
+                };
+
+                match tx.unbounded_send(Message::Text(packet)) {
+                    Ok(_) => (),
+                    Err(_) => {
+                        error!("Error sending packet");
+                        continue;
+                    }
+                }
+            }
+        }
+    }
 }

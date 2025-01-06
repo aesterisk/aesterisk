@@ -24,9 +24,13 @@ impl SDAuthResponsePacket {
         }
     }
 
-    pub fn to_string(&self) -> Result<String, serde_json::Error> {
-        let data = serde_json::to_value(&self).expect("packet data should be serializeable");
-        let packet = Packet::new(Version::V0_1_0, ID::SDAuthResponse, data);
-        serde_json::to_string(&packet)
+    pub fn to_packet(&self) -> Result<Packet, String> {
+        let data = serde_json::to_value(&self).map_err(|_| "packet data should be serializeable")?;
+        Ok(Packet::new(Version::V0_1_0, ID::SDAuthResponse, data))
+    }
+
+    pub fn to_string(&self) -> Result<String, String> {
+        let packet = self.to_packet()?;
+        Ok(serde_json::to_string(&packet).map_err(|_| "packet could not be serialized")?)
     }
 }
