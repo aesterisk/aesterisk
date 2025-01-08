@@ -9,6 +9,6 @@ export default async function Loader({ teamID }: { teamID: Promise<string>; }) {
 	const nodes = await getNodes(team.team.id);
 
 	return (
-		<Client nodes={nodes} />
+		<Client nodes={nodes} teamID={team.team.id} />
 	);
 }

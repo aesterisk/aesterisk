@@ -3,13 +3,26 @@
 import { ColumnDef, flexRender, getCoreRowModel, getPaginationRowModel, useReactTable } from "@tanstack/react-table";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
+import { ReactNode } from "react";
+import { Dialog, DialogContent, DialogTrigger } from "@/components/ui/dialog";
 
 interface DataTableProps<TKey, TValue> {
 	columns: ColumnDef<TKey, TValue>[];
 	data: TKey[];
+	onClick?: ()=> void;
+	actionLabel?: ReactNode;
+	dialogTrigger?: boolean;
+	children?: ReactNode;
 }
 
-export function DataList<TKey, TValue>({ columns, data }: DataTableProps<TKey, TValue>) {
+export function DataList<TKey, TValue>({
+	columns,
+	data,
+	onClick,
+	actionLabel,
+	dialogTrigger,
+	children,
+}: DataTableProps<TKey, TValue>) {
 	const table = useReactTable({
 		data,
 		columns,
@@ -76,6 +89,34 @@ export function DataList<TKey, TValue>({ columns, data }: DataTableProps<TKey, T
 			</div>
 			{ /* todo: redo pagination */ }
 			<div className="flex items-center justify-end space-x-2 py-4">
+				{
+					actionLabel && (
+						dialogTrigger
+							? (
+								<>
+									<Dialog>
+										<DialogTrigger asChild>
+											<Button size="sm" onClick={onClick}>
+												{ actionLabel }
+											</Button>
+										</DialogTrigger>
+										<DialogContent>
+											{ children }
+										</DialogContent>
+									</Dialog>
+									<div className="flex-1" />
+								</>
+							)
+							: (
+								<>
+									<Button size="sm" onClick={onClick}>
+										{ actionLabel }
+									</Button>
+									<div className="flex-1" />
+								</>
+							)
+					)
+				}
 				<Button variant="outline" size="sm" onClick={() => table.previousPage()} disabled={!table.getCanPreviousPage()}>
 					{ "Previous" }
 				</Button>

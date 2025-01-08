@@ -1,16 +1,17 @@
-use std::{fs, io, sync::Arc, thread, time::{Duration, SystemTime}};
+use std::{collections::HashSet, fs, io, iter::Sum, sync::Arc, thread, time::{Duration, SystemTime}};
 
 use config::Config;
 use futures_channel::mpsc::{self, unbounded};
 use futures_util::{future, join, pin_mut, FutureExt, StreamExt, TryStreamExt};
 use josekit::{jwe::{self, alg::rsaes::{RsaesJweDecrypter, RsaesJweEncrypter}, JweHeader}, jwk::alg::rsa::RsaKeyPair, jwt::{self, JwtPayload, JwtPayloadValidator}};
 use lazy_static::lazy_static;
-use packet::{daemon_server::{auth::DSAuthPacket, event::DSEventPacket, handshake_response::DSHandshakeResponsePacket}, events::{EventData, EventType, NodeStatusEvent}, server_daemon::{auth_response::SDAuthResponsePacket, handshake_request::SDHandshakeRequestPacket, listen::SDListenPacket}, Packet, ID};
+use packet::{daemon_server::{auth::DSAuthPacket, event::DSEventPacket, handshake_response::DSHandshakeResponsePacket}, events::{EventData, EventType, NodeStats, NodeStatusEvent}, server_daemon::{auth_response::SDAuthResponsePacket, handshake_request::SDHandshakeRequestPacket, listen::SDListenPacket}, Packet, ID};
 use tokio::sync::{Mutex, RwLock};
 use tokio_tungstenite::tungstenite::{self, Message};
 use tracing::{debug, error, info, warn, Level};
 use tracing_appender::rolling::Rotation;
 use tracing_subscriber::{fmt::writer::MakeWriterExt, layer::SubscriberExt, util::SubscriberInitExt};
+use sysinfo::{CpuRefreshKind, DiskRefreshKind, Disks, MemoryRefreshKind, RefreshKind, System};
 use uuid::Uuid;
 
 mod config;
@@ -310,6 +311,10 @@ async fn handle_listen(listen_packet: SDListenPacket) -> Result<(), String> {
 
 async fn start_status_sender(sender: Sender) {
     let mut interval = tokio::time::interval(Duration::from_secs(1));
+    let mut system = System::new();
+    let mut disks = Disks::new();
+
+    const GB: f64 = 1_073_741_824.0;
 
     loop {
         interval.tick().await;
@@ -321,9 +326,27 @@ async fn start_status_sender(sender: Sender) {
         {
             let sender = sender.lock().await;
             if let Some(tx) = sender.as_ref() {
+                system.refresh_specifics(RefreshKind::nothing().with_memory(MemoryRefreshKind::nothing().with_ram()).with_cpu(CpuRefreshKind::nothing().with_cpu_usage()));
+                disks.refresh_specifics(true, DiskRefreshKind::nothing().with_storage());
+
+                let mut counted = HashSet::new();
+
+                let (used, total) = disks.iter()
+                    .filter(|disk| counted.insert(disk.name().to_string_lossy()))
+                    .map(|disk| (disk.available_space(), disk.total_space()))
+                    .map(|(available, total)| (total - available, total))
+                    .fold((0, 0), |(used, total), (used2, total2)| (used + used2, total + total2));
+
                 let packet = DSEventPacket {
                     data: EventData::NodeStatus(NodeStatusEvent {
                         online: true,
+                        stats: Some(NodeStats {
+                            used_memory: system.used_memory() as f64 / GB,
+                            total_memory: system.total_memory() as f64 / GB,
+                            cpu: system.global_cpu_usage() as f64,
+                            used_storage: used as f64 / GB,
+                            total_storage: total as f64 / GB,
+                        }),
                     }),
                 };
 

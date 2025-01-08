@@ -10,6 +10,16 @@ pub enum EventType {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct NodeStatusEvent {
     pub online: bool,
+    pub stats: Option<NodeStats>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct NodeStats {
+    pub used_memory: f64,
+    pub total_memory: f64,
+    pub cpu: f64,
+    pub used_storage: f64,
+    pub total_storage: f64,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

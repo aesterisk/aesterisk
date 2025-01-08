@@ -96,7 +96,7 @@ export const SocketProvider = ({ children, userID, publicKey, privateKey }: Para
 			};
 
 			ws.onerror = (error) => {
-				if(dev()) console.error("[Socket] Error:", error);
+				if(dev()) console.warn("[Socket] Error:", error);
 			};
 
 			ws.onclose = () => {

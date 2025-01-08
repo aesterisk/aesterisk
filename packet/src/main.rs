@@ -1,4 +1,4 @@
-use aesterisk_packet::{events::{EventData, EventType, ListenEvent, NodeStatusEvent}, server_web::event::SWEventPacket, web_server::listen::WSListenPacket};
+use aesterisk_packet::{events::{EventData, EventType, ListenEvent, NodeStats, NodeStatusEvent}, server_web::event::SWEventPacket, web_server::listen::WSListenPacket};
 use uuid::uuid;
 
 fn main() {
@@ -16,6 +16,13 @@ fn main() {
     let packet2 = SWEventPacket {
         event: EventData::NodeStatus(NodeStatusEvent {
             online: true,
+            stats: Some(NodeStats {
+                used_memory: 16.2,
+                total_memory: 32.0,
+                cpu: 56.0,
+                used_storage: 180.4,
+                total_storage: 256.0,
+            })
         }),
         daemon: id
     }.to_packet().unwrap();

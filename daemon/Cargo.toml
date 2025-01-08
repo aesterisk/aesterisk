@@ -21,3 +21,4 @@ tracing-subscriber.workspace = true
 lazy_static.workspace = true
 josekit.workspace = true
 uuid = "1.11.0"
+sysinfo = "0.33.1"

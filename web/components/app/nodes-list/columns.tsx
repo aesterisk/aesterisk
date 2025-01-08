@@ -89,15 +89,17 @@ export const columns: ColumnDef<NodeData>[] = [
 		id: "memory",
 		header: () => <span className="w-min h-min select">{ "Memory" }</span>,
 		cell: ({ row }) => {
-			const usage = 13.2;
-			const min = 0;
-			const max = 16;
+			if(!row.original.memory || !row.original.memory.total || !row.original.memory.used) {
+				return (
+					<Skeleton className="h-2 w-24" />
+				);
+			}
 
-			const percentage = mapValue(usage, min, max, 0, 100);
+			const percentage = mapValue(row.original.memory.used, 0, row.original.memory.total, 0, 100);
 
 			return (
 				<div className="flex flex-col">
-					<span className="text-sm text-primary/50">{ `${usage} of ${max} GB used` }</span>
+					<span className="text-sm text-primary/50">{ `${parseFloat(row.original.memory.used.toFixed(1))} of ${parseFloat(row.original.memory.total.toFixed(1))} GB used` }</span>
 					<Progress value={percentage} aria-label={`${percentage.toFixed(0)}% usage`} className="h-3 border" />
 				</div>
 			);
@@ -107,12 +109,16 @@ export const columns: ColumnDef<NodeData>[] = [
 		id: "cpu",
 		header: () => <span className="w-min h-min select">{ "CPU" }</span>,
 		cell: ({ row }) => {
-			const usage = 87.3;
+			if(!row.original.cpu) {
+				return (
+					<Skeleton className="h-2 w-24" />
+				);
+			}
 
 			return (
 				<div className="flex flex-col">
-					<span className="text-sm text-primary/50">{ `${usage.toFixed(1)}% used` }</span>
-					<Progress value={usage} aria-label={`${usage.toFixed(0)}% usage`} className="h-3 border" />
+					<span className="text-sm text-primary/50">{ `${row.original.cpu.toFixed(1)}% used` }</span>
+					<Progress value={row.original.cpu} aria-label={`${row.original.cpu.toFixed(0)}% usage`} className="h-3 border" />
 				</div>
 			);
 		},
@@ -121,15 +127,17 @@ export const columns: ColumnDef<NodeData>[] = [
 		id: "storage",
 		header: () => <span className="w-min h-min select">{ "Storage" }</span>,
 		cell: ({ row }) => {
-			const usage = 241.9;
-			const min = 0;
-			const max = 256;
+			if(!row.original.storage || !row.original.storage.total || !row.original.storage.used) {
+				return (
+					<Skeleton className="h-2 w-24" />
+				);
+			}
 
-			const percentage = mapValue(usage, min, max, 0, 100);
+			const percentage = mapValue(row.original.storage.used, 0, row.original.storage.total, 0, 100);
 
 			return (
 				<div className="flex flex-col">
-					<span className="text-sm text-primary/50">{ `${usage} of ${max} GB used` }</span>
+					<span className="text-sm text-primary/50">{ `${parseFloat(row.original.storage.used.toFixed(1))} of ${parseFloat(row.original.storage.total.toFixed(1))} GB used` }</span>
 					<Progress value={percentage} aria-label={`${percentage.toFixed(0)}% usage`} className="h-3 border" />
 				</div>
 			);

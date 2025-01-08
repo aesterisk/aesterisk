@@ -409,6 +409,7 @@ async fn handle_listen(listen_packet: WSListenPacket, addr: SocketAddr) -> Resul
     for daemon in offline_daemons.into_iter() {
         send_event_from_server(&daemon, EventData::NodeStatus(NodeStatusEvent {
             online: false,
+            stats: None,
         })).await?;
     }
 

@@ -158,6 +158,7 @@ async fn handle_client(write: SplitSink<WebSocketStream<TcpStream>, Message>, re
     debug!("[{}:{}] dropped DAEMON_ID_MAP", file!(), line!());
     send_event_from_server(&uuid, EventData::NodeStatus(NodeStatusEvent {
         online: false,
+        stats: None,
     })).await?;
 
     info!("Disconnected");

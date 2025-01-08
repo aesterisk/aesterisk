@@ -4,6 +4,13 @@ export enum EventType {
 
 export type NodeStatusEvent = {
 	online: boolean;
+	stats?: {
+		used_memory: number;
+		total_memory: number;
+		cpu: number;
+		used_storage: number;
+		total_storage: number;
+	};
 };
 
 export type ListenEvent = {

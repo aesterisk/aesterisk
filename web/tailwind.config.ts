@@ -11,8 +11,8 @@ export default {
 	theme: {
 		extend: {
 			fontFamily: {
-				sans: "var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif, \\\"Apple Color Emoji\\\", \\\"Segoe UI Emoji\\\", \\\"Segoe UI Symbol\\\", \\\"Noto Color Emoji\\\"",
-				mono: "var(--font-geist-mono), ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, \\\"Liberation Mono\\\", \\\"Courier New\\\", monospace",
+				sans: "var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif, \"Apple Color Emoji\", \"Segoe UI Emoji\", \"Segoe UI Symbol\", \"Noto Color Emoji\"",
+				mono: "var(--font-geist-mono), ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, \"Liberation Mono\", \"Courier New\", monospace",
 			},
 			borderRadius: {
 				lg: "var(--radius)",
@@ -39,9 +39,9 @@ export default {
 					foreground: "hsl(var(--secondary-foreground))",
 				},
 				muted: {
+					40: "hsl(var(--muted-40))",
 					DEFAULT: "hsl(var(--muted))",
 					foreground: "hsl(var(--muted-foreground))",
-					40: "hsl(var(--muted-40))",
 				},
 				accent: {
 					DEFAULT: "hsl(var(--accent))",
@@ -61,6 +61,28 @@ export default {
 					4: "hsl(var(--chart-4))",
 					5: "hsl(var(--chart-5))",
 				},
+			},
+			keyframes: {
+				"accordion-down": {
+					from: {
+						height: "0",
+					},
+					to: {
+						height: "var(--radix-accordion-content-height)",
+					},
+				},
+				"accordion-up": {
+					from: {
+						height: "var(--radix-accordion-content-height)",
+					},
+					to: {
+						height: "0",
+					},
+				},
+			},
+			animation: {
+				"accordion-down": "accordion-down 0.2s ease-out",
+				"accordion-up": "accordion-up 0.2s ease-out",
 			},
 		},
 	},

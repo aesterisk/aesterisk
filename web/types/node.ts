@@ -63,3 +63,45 @@ export async function getTeamNodes(team: number): Promise<Node[]> {
 	`;
 	return rows.map(fromDB);
 }
+
+export async function addNodeToTeam(team: number, name: string, key: string): Promise<Node> {
+	const rows = await sql`
+		INSERT INTO aesterisk.nodes (
+			node_name,
+			node_last_active_at,
+			node_last_external_ip,
+			node_network_ip_range,
+			node_public_key,
+			node_uuid,
+			node_ip_locked
+		) VALUES (
+			${name},
+			CURRENT_TIMESTAMP,
+			'0.0.0.0',
+			2693,
+			${key},
+			gen_random_uuid(),
+			false
+		) RETURNING *;
+	`;
+	// todo: remove hard-coded network ip range, use a config value
+	// todo: make last_active and last_external_ip fields nullable (cuz the node has never been active yet)
+
+	if(rows.length !== 1) {
+		throw new Error("SQL query for inserting node failed!");
+	}
+
+	const node = fromDB(rows[0]);
+
+	await sql`
+		INSERT INTO aesterisk.team_nodes (
+			team_id,
+			node_id
+		) VALUES (
+			${team},
+			${node.id}
+		);
+	`;
+
+	return node;
+}
