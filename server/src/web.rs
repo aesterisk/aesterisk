@@ -1,4 +1,4 @@
-use std::{collections::{HashMap, HashSet}, net::SocketAddr, sync::Arc, time::{Duration, SystemTime}};
+use std::{collections::{HashMap, HashSet}, net::SocketAddr, sync::Arc, time::{Duration, SystemTime}, fmt::Write};
 
 use futures_channel::mpsc::unbounded;
 use futures_util::{future, pin_mut, stream::{SplitSink, SplitStream}, FutureExt, StreamExt, TryStreamExt};
@@ -60,18 +60,18 @@ pub async fn start(pool: PgPool) {
 // TODO: move to shared utils module
 fn error_to_string(e: tungstenite::Error) -> String {
     match e {
-        tungstenite::Error::Utf8 => format!("Error in UTF-8 encoding"),
+        tungstenite::Error::Utf8 => "Error in UTF-8 encoding".into(),
         tungstenite::Error::Io(e) => format!("IO error ({})", e.kind()),
-        tungstenite::Error::Tls(_) => format!("TLS error"),
-        tungstenite::Error::Url(_) => format!("Invalid URL"),
-        tungstenite::Error::Http(_) => format!("HTTP error"),
-        tungstenite::Error::HttpFormat(_) => format!("HTTP format error"),
-        tungstenite::Error::Capacity(_) => format!("Buffer capacity exhausted"),
-        tungstenite::Error::Protocol(_) => format!("Protocol violation"),
-        tungstenite::Error::AlreadyClosed => format!("Connection already closed"),
-        tungstenite::Error::AttackAttempt => format!("Attack attempt detected"),
-        tungstenite::Error::WriteBufferFull(_) => format!("Write buffer full"),
-        tungstenite::Error::ConnectionClosed => format!("Connection closed"),
+        tungstenite::Error::Tls(_) => "TLS error".into(),
+        tungstenite::Error::Url(_) => "Invalid URL".into(),
+        tungstenite::Error::Http(_) => "HTTP error".into(),
+        tungstenite::Error::HttpFormat(_) => "HTTP format error".into(),
+        tungstenite::Error::Capacity(_) => "Buffer capacity exhausted".into(),
+        tungstenite::Error::Protocol(_) => "Protocol violation".into(),
+        tungstenite::Error::AlreadyClosed => "Connection already closed".into(),
+        tungstenite::Error::AttackAttempt => "Attack attempt detected".into(),
+        tungstenite::Error::WriteBufferFull(_) => "Write buffer full".into(),
+        tungstenite::Error::ConnectionClosed => "Connection closed".into(),
     }
 }
 
@@ -158,9 +158,9 @@ async fn handle_client(write: SplitSink<WebSocketStream<TcpStream>, Message>, re
 
         web_channel_map.remove(&addr);
         if let Some(listen_map) = web_listen_map.get(&addr) {
-            for (event, daemons) in listen_map.into_iter() {
-                for daemon in daemons.into_iter() {
-                    update_daemons.insert(daemon.clone());
+            for (event, daemons) in listen_map.iter() {
+                for daemon in daemons.iter() {
+                    update_daemons.insert(*daemon);
 
                     let listen_map = daemon_listen_map.get_mut(daemon).ok_or("daemon not found in DaemonListenMap")?;
                     let event_map = listen_map.get_mut(event).ok_or("event not found in DaemonListenMap")?;
@@ -248,7 +248,7 @@ fn decrypt_packet(msg: &str, decrypter: &RsaesJweDecrypter) -> Result<Packet, St
     // TODO: maybe don't clone hehe
     let try_packet = Packet::from_value(payload.claim("p").ok_or("should have .p")?.clone());
 
-    Ok(try_packet.ok_or(format!("Could not parse packet: \"{}\"", msg))?)
+    try_packet.ok_or(format!("Could not parse packet: \"{}\"", msg))
 }
 
 struct PublicKeyQuery {
@@ -273,7 +273,10 @@ async fn query_user_public_key(user_id: u32, pool: PgPool) -> Result<Arc<Vec<u8>
 async fn handle_auth(auth_packet: WSAuthPacket, addr: SocketAddr, pool: PgPool) -> Result<(), String> {
     let mut challenge_bytes = [0; 256];
     rand_bytes(&mut challenge_bytes).map_err(|_| "Could not generate challenge")?;
-    let challenge = challenge_bytes.iter().map(|byte| format!("{:02X}", byte)).collect::<String>();
+    let challenge = challenge_bytes.iter().fold(String::new(), |mut s, byte| {
+        write!(s, "{:02X}", byte).expect("could not write byte");
+        s
+    });
 
     let key = query_user_public_key(auth_packet.user_id, pool).await?;
 
@@ -364,7 +367,7 @@ async fn handle_listen(listen_packet: WSListenPacket, addr: SocketAddr) -> Resul
 
         for event in listen_packet.events.into_iter() {
             for daemon in event.daemons.iter() {
-                update_daemons.insert(daemon.clone());
+                update_daemons.insert(*daemon);
 
                 if let Some(listen_map) = daemon_listen_map.get_mut(daemon) {
                     if let Some(client_set) = listen_map.get_mut(&event.event) {
@@ -377,20 +380,18 @@ async fn handle_listen(listen_packet: WSListenPacket, addr: SocketAddr) -> Resul
                     set.insert(addr);
                     let mut listen_map = HashMap::new();
                     listen_map.insert(event.event, set);
-                    daemon_listen_map.insert(daemon.clone(), listen_map);
+                    daemon_listen_map.insert(*daemon, listen_map);
                 }
 
-                if event.event == EventType::NodeStatus {
-                    if let None = daemon_id_map.get(&daemon) {
-                        offline_daemons.insert(daemon.clone());
-                    }
+                if event.event == EventType::NodeStatus && daemon_id_map.get(daemon).is_none() {
+                    offline_daemons.insert(*daemon);
                 }
             }
 
             if let Some(listen_map) = web_listen_map.get_mut(&addr) {
                 if let Some(daemon_set) = listen_map.get_mut(&event.event) {
                     for daemon in event.daemons.iter() {
-                        daemon_set.insert(daemon.clone());
+                        daemon_set.insert(*daemon);
                     }
                 } else {
                     listen_map.insert(event.event, HashSet::from_iter(event.daemons.into_iter()));

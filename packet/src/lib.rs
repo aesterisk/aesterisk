@@ -1,3 +1,5 @@
+use std::{fmt::{Display, Formatter}, str::FromStr};
+
 pub mod events;
 pub mod web_server;
 pub mod server_web;
@@ -43,27 +45,33 @@ impl Packet {
         }
     }
 
-    pub fn from_str(msg: &str) -> Option<Self> {
-        let res = serde_json::from_str(msg);
-
-        if res.is_err() {
-            println!("W (Packet) Packet deserializing error: {:#?}", res.as_ref().err().expect("Result::err should return Some when Result::is_err returns true"));
-        }
-
-        res.ok()
-    }
-
     pub fn from_value(value: serde_json::Value) -> Option<Self> {
         let res = serde_json::from_value(value);
 
         if res.is_err() {
-            println!("W (Packet) Packet deserializing error: {:#?}", res.as_ref().err().expect("Result::err should return Some when Result::is_err returns true"));
+            println!("W (Packet) Packet deserializing error: {:#?}", res.as_ref().expect_err("Result::err should return Some when Result::is_err returns true"));
         }
 
         res.ok()
     }
+}
 
-    pub fn to_string(&self) -> String {
-        serde_json::to_string(&self).expect("failed to serialize packet")
+impl FromStr for Packet {
+    type Err = String;
+
+    fn from_str(msg: &str) -> Result<Self, String> {
+        let res = serde_json::from_str(msg);
+
+        if res.is_err() {
+            println!("W (Packet) Packet deserializing error: {:#?}", res.as_ref().expect_err("Result::err should return Some when Result::is_err returns true"));
+        }
+
+        res.map_err(|_| "failed to deserialize packet".into())
+    }
+}
+
+impl Display for Packet {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", serde_json::to_string(&self).expect("failed to serialize packet"))
     }
 }

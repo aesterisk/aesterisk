@@ -5,7 +5,7 @@ export type NodeData = {
 	uuid: string;
 	name: string;
 	online?: boolean;
-	lastActive: number;
+	lastActive?: number;
 	servers?: {
 		online: number;
 		failed: number;

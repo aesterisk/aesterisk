@@ -29,7 +29,8 @@ export default function Client({ nodes, teamID }: {
 	const [nodeData, setNodeData] = useState<NodeData[]>(allNodes.map((node) => ({
 		uuid: node.uuid,
 		name: node.name,
-		lastActive: node.lastActive,
+		// eslint-disable-next-line no-undefined
+		lastActive: node.lastActive ?? undefined,
 	})));
 
 	const nodeUuids = useMemo(() => allNodes.map((node) => node.uuid), [allNodes]);
@@ -147,7 +148,8 @@ export default function Client({ nodes, teamID }: {
 				setNodeData((d) => d.concat({
 					uuid: node.uuid,
 					name: node.name,
-					lastActive: node.lastActive,
+					// eslint-disable-next-line no-undefined
+					lastActive: node.lastActive ?? undefined,
 				} satisfies NodeData));
 			}
 		}

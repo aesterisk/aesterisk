@@ -1,4 +1,4 @@
-use std::{net::SocketAddr, sync::Arc, time::{Duration, SystemTime}};
+use std::{net::SocketAddr, sync::Arc, time::{Duration, SystemTime}, fmt::Write};
 
 use futures_channel::mpsc::unbounded;
 use futures_util::{future, pin_mut, stream::{SplitSink, SplitStream}, FutureExt, StreamExt, TryStreamExt};
@@ -60,18 +60,18 @@ pub async fn start(pool: PgPool) {
 // TODO: move to shared utils module
 fn error_to_string(e: tungstenite::Error) -> String {
     match e {
-        tungstenite::Error::Utf8 => format!("Error in UTF-8 encoding"),
+        tungstenite::Error::Utf8 => "Error in UTF-8 encoding".into(),
         tungstenite::Error::Io(e) => format!("IO error ({})", e.kind()),
-        tungstenite::Error::Tls(_) => format!("TLS error"),
-        tungstenite::Error::Url(_) => format!("Invalid URL"),
-        tungstenite::Error::Http(_) => format!("HTTP error"),
-        tungstenite::Error::HttpFormat(_) => format!("HTTP format error"),
-        tungstenite::Error::Capacity(_) => format!("Buffer capacity exhausted"),
-        tungstenite::Error::Protocol(_) => format!("Protocol violation"),
-        tungstenite::Error::AlreadyClosed => format!("Connection already closed"),
-        tungstenite::Error::AttackAttempt => format!("Attack attempt detected"),
-        tungstenite::Error::WriteBufferFull(_) => format!("Write buffer full"),
-        tungstenite::Error::ConnectionClosed => format!("Connection closed"),
+        tungstenite::Error::Tls(_) => "TLS error".into(),
+        tungstenite::Error::Url(_) => "Invalid URL".into(),
+        tungstenite::Error::Http(_) => "HTTP error".into(),
+        tungstenite::Error::HttpFormat(_) => "HTTP format error".into(),
+        tungstenite::Error::Capacity(_) => "Buffer capacity exhausted".into(),
+        tungstenite::Error::Protocol(_) => "Protocol violation".into(),
+        tungstenite::Error::AlreadyClosed => "Connection already closed".into(),
+        tungstenite::Error::AttackAttempt => "Attack attempt detected".into(),
+        tungstenite::Error::WriteBufferFull(_) => "Write buffer full".into(),
+        tungstenite::Error::ConnectionClosed => "Connection closed".into(),
     }
 }
 
@@ -202,7 +202,7 @@ fn encrypt_packet(packet: Packet, encrypter: &RsaesJweEncrypter) -> Result<Strin
 }
 
 async fn decrypt_packet(msg: &str, decrypter: &RsaesJweDecrypter, addr: &SocketAddr) -> Result<Packet, String> {
-    let (payload, _) = jwt::decode_with_decrypter(&msg, decrypter).expect("should decrypt");
+    let (payload, _) = jwt::decode_with_decrypter(msg, decrypter).expect("should decrypt");
 
     let mut validator = JwtPayloadValidator::new();
     validator.set_issuer("aesterisk/daemon");
@@ -227,7 +227,7 @@ async fn decrypt_packet(msg: &str, decrypter: &RsaesJweDecrypter, addr: &SocketA
     // TODO: maybe don't clone hehe
     let try_packet = Packet::from_value(payload.claim("p").expect("should have .p").clone());
 
-    Ok(try_packet.ok_or(format!("Could not parse packet: \"{}\"", msg))?)
+    try_packet.ok_or(format!("Could not parse packet: \"{}\"", msg))
 }
 
 struct PublicKeyQuery {
@@ -245,14 +245,17 @@ async fn query_user_public_key(daemon_uuid: &Uuid, pool: PgPool) -> Result<Arc<V
     let res = sqlx::query_as!(PublicKeyQuery, "SELECT node_public_key FROM aesterisk.nodes WHERE node_uuid = $1", daemon_uuid).fetch_one(&pool).await.map_err(|_| format!("Node with UUID {} does not exist", &daemon_uuid))?;
 
     let mut cache = DAEMON_KEY_CACHE.lock().await;
-    cache.insert(daemon_uuid.clone(), Arc::new(res.node_public_key.into_bytes()));
+    cache.insert(*daemon_uuid, Arc::new(res.node_public_key.into_bytes()));
     Ok(cache.get(daemon_uuid).ok_or("key should be in cache")?.clone())
 }
 
 async fn handle_auth(auth_packet: DSAuthPacket, addr: SocketAddr, pool: PgPool) -> Result<(), String> {
     let mut challenge_bytes = [0; 256];
     rand_bytes(&mut challenge_bytes).map_err(|_| "Could not generate challenge")?;
-    let challenge = challenge_bytes.iter().map(|byte| format!("{:02X}", byte)).collect::<String>();
+    let challenge = challenge_bytes.iter().fold(String::new(), |mut s, byte| {
+        write!(s, "{:02X}", byte).expect("could not write byte");
+        s
+    });
 
     let uuid = Uuid::parse_str(&auth_packet.daemon_uuid).map_err(|_| "Could not parse UUID")?;
     let key = query_user_public_key(&uuid, pool).await?;
@@ -360,26 +363,23 @@ pub async fn send_event_from_server(uuid: &Uuid, event: EventData) -> Result<(),
     debug!("[{}:{}] got DAEMON_LISTEN_MAP", file!(), line!());
     let clients = map.get(uuid).ok_or("Daemon not found in DaemonListenMap")?.get(&event.event_type());
 
-    match clients {
-        Some(clients) => {
-            for client in clients.into_iter() {
-                #[cfg(feature = "lock_debug")]
-                debug!("[{}:{}] awaiting WEB_CHANNEL_MAP", file!(), line!());
-                let map = WEB_CHANNEL_MAP.read().await;
-                #[cfg(feature = "lock_debug")]
-                debug!("[{}:{}] got WEB_CHANNEL_MAP", file!(), line!());
-                let socket = map.get(client).ok_or("Disconnected client still in WebChannelMap")?;
+    if let Some(clients) = clients {
+        for client in clients.iter() {
+            #[cfg(feature = "lock_debug")]
+            debug!("[{}:{}] awaiting WEB_CHANNEL_MAP", file!(), line!());
+            let map = WEB_CHANNEL_MAP.read().await;
+            #[cfg(feature = "lock_debug")]
+            debug!("[{}:{}] got WEB_CHANNEL_MAP", file!(), line!());
+            let socket = map.get(client).ok_or("Disconnected client still in WebChannelMap")?;
 
-                socket.tx.unbounded_send(Message::Text(encrypt_packet(SWEventPacket {
-                    event: event.clone(),
-                    daemon: *uuid,
-                }.to_packet()?, &socket.handshake.as_ref().ok_or("Client hasn't requested authentication")?.encrypter)?)).map_err(|_| "Could not send packet to client")?;
+            socket.tx.unbounded_send(Message::Text(encrypt_packet(SWEventPacket {
+                event: event.clone(),
+                daemon: *uuid,
+            }.to_packet()?, &socket.handshake.as_ref().ok_or("Client hasn't requested authentication")?.encrypter)?)).map_err(|_| "Could not send packet to client")?;
 
-                #[cfg(feature = "lock_debug")]
-                debug!("[{}:{}] dropped WEB_CHANNEL_MAP", file!(), line!());
-            }
-        },
-        None => ()
+            #[cfg(feature = "lock_debug")]
+            debug!("[{}:{}] dropped WEB_CHANNEL_MAP", file!(), line!());
+        }
     }
 
     #[cfg(feature = "lock_debug")]
