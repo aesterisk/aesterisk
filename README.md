@@ -87,6 +87,6 @@ the source code if you're interested!)
 
 ## Licensing
 
-© 2024 Valter Sporrenstrand ([@yolocat-dev](https://github.com/yolocat-dev)).
+© 2025 Valter Sporrenstrand ([@yolocat-dev](https://github.com/yolocat-dev)).
 
 This software is licensed under the GNU Affero General Public License (AGPL) version 3. See [LICENSE](https://github.com/aesterisk/aesterisk/tree/main/LICENSE) for the complete terms.
