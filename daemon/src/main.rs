@@ -1,4 +1,4 @@
-use std::{collections::HashSet, fs, io, iter::Sum, sync::Arc, thread, time::{Duration, SystemTime}};
+use std::{collections::HashSet, fs, io, sync::Arc, thread, time::{Duration, SystemTime}};
 
 use config::Config;
 use futures_channel::mpsc::{self, unbounded};
