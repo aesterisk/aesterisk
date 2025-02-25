@@ -1,13 +1,13 @@
 use std::{collections::{HashMap, HashSet}, env, io, net::SocketAddr, sync::Arc};
 
 use daemon::DaemonSocket;
+use dashmap::DashMap;
 use futures_channel::mpsc;
 use futures_util::join;
 use josekit::jwk::alg::rsa::RsaKeyPair;
 use lazy_static::lazy_static;
 use packet::events::EventType;
 use sqlx::{postgres::PgPoolOptions, types::Uuid};
-use tokio::sync::{Mutex, RwLock};
 use tokio_tungstenite::tungstenite::Message;
 use tracing::{info, warn, Level};
 use tracing_appender::rolling::Rotation;
@@ -21,30 +21,30 @@ mod web;
 type Tx = mpsc::UnboundedSender<Message>;
 type Rx = mpsc::UnboundedReceiver<Message>;
 
-type WebChannelMap = Arc<RwLock<HashMap<SocketAddr, WebSocket>>>;
-type WebKeyCache = Arc<Mutex<HashMap<u32, Arc<Vec<u8>>>>>;
+type WebChannelMap = Arc<DashMap<SocketAddr, WebSocket>>;
+type WebKeyCache = Arc<DashMap<u32, Arc<Vec<u8>>>>;
 
-type DaemonChannelMap = Arc<RwLock<HashMap<SocketAddr, DaemonSocket>>>;
-type DaemonKeyCache = Arc<Mutex<HashMap<Uuid, Arc<Vec<u8>>>>>;
+type DaemonChannelMap = Arc<DashMap<SocketAddr, DaemonSocket>>;
+type DaemonKeyCache = Arc<DashMap<Uuid, Arc<Vec<u8>>>>;
 
-type DaemonListenMap = Arc<RwLock<HashMap<Uuid, HashMap<EventType, HashSet<SocketAddr>>>>>;
-type WebListenMap = Arc<RwLock<HashMap<SocketAddr, HashMap<EventType, HashSet<Uuid>>>>>;
-type DaemonIDMap = Arc<RwLock<HashMap<Uuid, SocketAddr>>>;
+type DaemonListenMap = Arc<DashMap<Uuid, HashMap<EventType, HashSet<SocketAddr>>>>;
+type WebListenMap = Arc<DashMap<SocketAddr, HashMap<EventType, HashSet<Uuid>>>>;
+type DaemonIDMap = Arc<DashMap<Uuid, SocketAddr>>;
 
 lazy_static! {
     static ref CONFIG: config::Config = config::load_or_create("config.toml");
     static ref PRIVATE_KEY: josekit::jwk::Jwk = read_key(&CONFIG.server.private_key);
     static ref DECRYPTER: josekit::jwe::alg::rsaes::RsaesJweDecrypter = josekit::jwe::RSA_OAEP.decrypter_from_jwk(&PRIVATE_KEY).expect("decrypter should create successfully");
 
-    static ref WEB_CHANNEL_MAP: WebChannelMap = Arc::new(RwLock::new(HashMap::new()));
-    static ref WEB_KEY_CACHE: WebKeyCache = Arc::new(Mutex::new(HashMap::new()));
+    static ref WEB_CHANNEL_MAP: WebChannelMap = Arc::new(DashMap::new());
+    static ref WEB_KEY_CACHE: WebKeyCache = Arc::new(DashMap::new());
 
-    static ref DAEMON_CHANNEL_MAP: DaemonChannelMap = Arc::new(RwLock::new(HashMap::new()));
-    static ref DAEMON_KEY_CACHE: DaemonKeyCache = Arc::new(Mutex::new(HashMap::new()));
+    static ref DAEMON_CHANNEL_MAP: DaemonChannelMap = Arc::new(DashMap::new());
+    static ref DAEMON_KEY_CACHE: DaemonKeyCache = Arc::new(DashMap::new());
 
-    static ref DAEMON_LISTEN_MAP: DaemonListenMap = Arc::new(RwLock::new(HashMap::new()));
-    static ref WEB_LISTEN_MAP: WebListenMap = Arc::new(RwLock::new(HashMap::new()));
-    static ref DAEMON_ID_MAP: DaemonIDMap = Arc::new(RwLock::new(HashMap::new()));
+    static ref DAEMON_LISTEN_MAP: DaemonListenMap = Arc::new(DashMap::new());
+    static ref WEB_LISTEN_MAP: WebListenMap = Arc::new(DashMap::new());
+    static ref DAEMON_ID_MAP: DaemonIDMap = Arc::new(DashMap::new());
 }
 
 fn read_key(file: &str) -> josekit::jwk::Jwk {

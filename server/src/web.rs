@@ -1,4 +1,4 @@
-use std::{collections::{HashMap, HashSet}, net::SocketAddr, sync::Arc, time::{Duration, SystemTime}, fmt::Write};
+use std::{borrow::Borrow, collections::{HashMap, HashSet}, fmt::Write, net::SocketAddr, sync::Arc, time::{Duration, SystemTime}};
 
 use futures_channel::mpsc::unbounded;
 use futures_util::{future, pin_mut, stream::{SplitSink, SplitStream}, FutureExt, StreamExt, TryStreamExt};
@@ -86,7 +86,7 @@ async fn accept_connection(raw_stream: TcpStream, addr: SocketAddr, pool: PgPool
     let (tx, rx) = unbounded();
     #[cfg(feature = "lock_debug")]
     debug!("[{}:{}] awaiting WEB_CHANNEL_MAP", file!(), line!());
-    WEB_CHANNEL_MAP.write().await.insert(addr, WebSocket {
+    WEB_CHANNEL_MAP.insert(addr, WebSocket {
         tx,
         handshake: None,
     });
@@ -142,17 +142,17 @@ async fn handle_client(write: SplitSink<WebSocketStream<TcpStream>, Message>, re
     {
         #[cfg(feature = "lock_debug")]
         debug!("[{}:{}] awaiting WEB_LISTEN_MAP", file!(), line!());
-        let web_listen_map = WEB_LISTEN_MAP.read().await;
+        let web_listen_map = WEB_LISTEN_MAP.borrow();
         #[cfg(feature = "lock_debug")]
         debug!("[{}:{}] got WEB_LISTEN_MAP", file!(), line!());
         #[cfg(feature = "lock_debug")]
         debug!("[{}:{}] awaiting DAEMON_LISTEN_MAP", file!(), line!());
-        let mut daemon_listen_map = DAEMON_LISTEN_MAP.write().await;
+        let daemon_listen_map = DAEMON_LISTEN_MAP.borrow();
         #[cfg(feature = "lock_debug")]
         debug!("[{}:{}] got DAEMON_LISTEN_MAP", file!(), line!());
         #[cfg(feature = "lock_debug")]
         debug!("[{}:{}] awaiting WEB_CHANNEL_MAP", file!(), line!());
-        let mut web_channel_map = WEB_CHANNEL_MAP.write().await;
+        let web_channel_map = WEB_CHANNEL_MAP.borrow();
         #[cfg(feature = "lock_debug")]
         debug!("[{}:{}] got WEB_CHANNEL_MAP", file!(), line!());
 
@@ -162,7 +162,7 @@ async fn handle_client(write: SplitSink<WebSocketStream<TcpStream>, Message>, re
                 for daemon in daemons.iter() {
                     update_daemons.insert(*daemon);
 
-                    let listen_map = daemon_listen_map.get_mut(daemon).ok_or("daemon not found in DaemonListenMap")?;
+                    let mut listen_map = daemon_listen_map.get_mut(daemon).ok_or("daemon not found in DaemonListenMap")?;
                     let event_map = listen_map.get_mut(event).ok_or("event not found in DaemonListenMap")?;
 
                     event_map.remove(&addr);
@@ -185,8 +185,8 @@ async fn handle_client(write: SplitSink<WebSocketStream<TcpStream>, Message>, re
     for daemon in update_daemons {
         #[cfg(feature = "lock_debug")]
         debug!("[{}:{}] awaiting DAEMON_ID_MAP", file!(), line!());
-        if let Some(daemon_addr) = DAEMON_ID_MAP.read().await.get(&daemon) {
-            update_listens_for_daemon(daemon_addr, &daemon).await?;
+        if let Some(daemon_addr) = DAEMON_ID_MAP.get(&daemon) {
+            update_listens_for_daemon(&daemon_addr, &daemon).await?;
         }
         #[cfg(feature = "lock_debug")]
         debug!("[{}:{}] got DAEMON_ID_MAP", file!(), line!());
@@ -257,7 +257,7 @@ struct PublicKeyQuery {
 
 async fn query_user_public_key(user_id: u32, pool: PgPool) -> Result<Arc<Vec<u8>>, String> {
     {
-        let cache = WEB_KEY_CACHE.lock().await;
+        let cache = WEB_KEY_CACHE.borrow();
         if let Some(v) = cache.get(&user_id) {
             return Ok(v.clone());
         }
@@ -265,7 +265,7 @@ async fn query_user_public_key(user_id: u32, pool: PgPool) -> Result<Arc<Vec<u8>
 
     let res = sqlx::query_as!(PublicKeyQuery, "SELECT user_public_key FROM aesterisk.users WHERE user_id = $1", user_id as i32).fetch_one(&pool).await.map_err(|_| format!("User with ID {} does not exist", user_id))?;
 
-    let mut cache = WEB_KEY_CACHE.lock().await;
+    let cache = WEB_KEY_CACHE.borrow();
     cache.insert(user_id, Arc::new(res.user_public_key.into_bytes()));
     Ok(cache.get(&user_id).ok_or("key should be in cache")?.clone())
 }
@@ -282,10 +282,10 @@ async fn handle_auth(auth_packet: WSAuthPacket, addr: SocketAddr, pool: PgPool) 
 
     #[cfg(feature = "lock_debug")]
     debug!("[{}:{}] awaiting WEB_CHANNEL_MAP", file!(), line!());
-    let mut clients = WEB_CHANNEL_MAP.write().await;
+    let clients = WEB_CHANNEL_MAP.borrow();
     #[cfg(feature = "lock_debug")]
     debug!("[{}:{}] got WEB_CHANNEL_MAP", file!(), line!());
-    let client = clients.get_mut(&addr).ok_or("Client not found in channel_map")?;
+    let mut client = clients.get_mut(&addr).ok_or("Client not found in channel_map")?;
 
     client.handshake = Some(WebHandshake {
         user_id: auth_packet.user_id,
@@ -312,7 +312,7 @@ async fn handle_auth(auth_packet: WSAuthPacket, addr: SocketAddr, pool: PgPool) 
 async fn handle_handshake_response(handshake_reponse_packet: WSHandshakeResponsePacket, addr: SocketAddr) -> Result<(), String> {
     #[cfg(feature = "lock_debug")]
     debug!("[{}:{}] awaiting WEB_CHANNEL_MAP", file!(), line!());
-    let mut clients = WEB_CHANNEL_MAP.write().await;
+    let clients = WEB_CHANNEL_MAP.borrow();
     #[cfg(feature = "lock_debug")]
     debug!("[{}:{}] got WEB_CHANNEL_MAP", file!(), line!());
     let client = clients.get_mut(&addr).ok_or("Client not found in channel_map")?;
@@ -349,19 +349,19 @@ async fn handle_listen(listen_packet: WSListenPacket, addr: SocketAddr) -> Resul
 
     #[cfg(feature = "lock_debug")]
     debug!("[{}:{}] awaiting DAEMON_ID_MAP", file!(), line!());
-    let daemon_id_map = DAEMON_ID_MAP.read().await;
+    let daemon_id_map = DAEMON_ID_MAP.borrow();
     #[cfg(feature = "lock_debug")]
     debug!("[{}:{}] got DAEMON_ID_MAP", file!(), line!());
 
     {
         #[cfg(feature = "lock_debug")]
         debug!("[{}:{}] awaiting WEB_LISTEN_MAP", file!(), line!());
-        let mut web_listen_map = WEB_LISTEN_MAP.write().await;
+        let web_listen_map = WEB_LISTEN_MAP.borrow();
         #[cfg(feature = "lock_debug")]
         debug!("[{}:{}] got WEB_LISTEN_MAP", file!(), line!());
         #[cfg(feature = "lock_debug")]
         debug!("[{}:{}] awaiting DAEMON_LISTEN_MAP", file!(), line!());
-        let mut daemon_listen_map = DAEMON_LISTEN_MAP.write().await;
+        let daemon_listen_map = DAEMON_LISTEN_MAP.borrow();
         #[cfg(feature = "lock_debug")]
         debug!("[{}:{}] got DAEMON_LISTEN_MAP", file!(), line!());
 
@@ -369,7 +369,7 @@ async fn handle_listen(listen_packet: WSListenPacket, addr: SocketAddr) -> Resul
             for daemon in event.daemons.iter() {
                 update_daemons.insert(*daemon);
 
-                if let Some(listen_map) = daemon_listen_map.get_mut(daemon) {
+                if let Some(mut listen_map) = daemon_listen_map.get_mut(daemon) {
                     if let Some(client_set) = listen_map.get_mut(&event.event) {
                         client_set.insert(addr);
                     } else {
@@ -388,7 +388,7 @@ async fn handle_listen(listen_packet: WSListenPacket, addr: SocketAddr) -> Resul
                 }
             }
 
-            if let Some(listen_map) = web_listen_map.get_mut(&addr) {
+            if let Some(mut listen_map) = web_listen_map.get_mut(&addr) {
                 if let Some(daemon_set) = listen_map.get_mut(&event.event) {
                     for daemon in event.daemons.iter() {
                         daemon_set.insert(*daemon);
@@ -416,7 +416,7 @@ async fn handle_listen(listen_packet: WSListenPacket, addr: SocketAddr) -> Resul
 
     for daemon in update_daemons.into_iter() {
         if let Some(daemon_addr) = daemon_id_map.get(&daemon) {
-            update_listens_for_daemon(daemon_addr, &daemon).await?;
+            update_listens_for_daemon(&daemon_addr, &daemon).await?;
         }
     }
 
@@ -429,14 +429,14 @@ async fn handle_listen(listen_packet: WSListenPacket, addr: SocketAddr) -> Resul
 async fn update_listens_for_daemon(addr: &SocketAddr, uuid: &Uuid) -> Result<(), String> {
     #[cfg(feature = "lock_debug")]
     debug!("[{}:{}] awaiting DAEMON_CHANNEL_MAP", file!(), line!());
-    let daemon_channel_map = DAEMON_CHANNEL_MAP.read().await;
+    let daemon_channel_map = DAEMON_CHANNEL_MAP.borrow();
     #[cfg(feature = "lock_debug")]
     debug!("[{}:{}] got DAEMON_CHANNEL_MAP", file!(), line!());
     let socket = daemon_channel_map.get(addr).ok_or("Daemon not found in DaemonChannelMap")?;
 
     #[cfg(feature = "lock_debug")]
     debug!("[{}:{}] awaiting DAEMON_LISTEN_MAP", file!(), line!());
-    let daemon_listen_map = DAEMON_LISTEN_MAP.read().await;
+    let daemon_listen_map = DAEMON_LISTEN_MAP.borrow();
     #[cfg(feature = "lock_debug")]
     debug!("[{}:{}] got DAEMON_LISTEN_MAP", file!(), line!());
     let events = daemon_listen_map.get(uuid).ok_or("Daemon not found in DaemonListenMap")?.keys().copied().collect::<Vec<_>>();
