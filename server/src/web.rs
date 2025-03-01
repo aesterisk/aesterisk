@@ -8,11 +8,11 @@ use sqlx::types::Uuid;
 use tokio::net::{TcpListener, TcpStream};
 use tokio_tungstenite::{tungstenite::{self, Message}, WebSocketStream};
 
-use packet::{events::{EventData, EventType, NodeStatusEvent}, server_daemon::listen::SDListenPacket, server_web::{auth_response::SWAuthResponsePacket, handshake_request::SWHandshakeRequestPacket}, web_server::{auth::WSAuthPacket, handshake_response::WSHandshakeResponsePacket, listen::WSListenPacket}, Packet, ID};
+use packet::{events::{EventData, EventType, NodeStatusEvent}, server_daemon::listen::SDListenPacket, server_web::{auth_response::SWAuthResponsePacket, event::SWEventPacket, handshake_request::SWHandshakeRequestPacket}, web_server::{auth::WSAuthPacket, handshake_response::WSHandshakeResponsePacket, listen::WSListenPacket}, Packet, ID};
 #[allow(unused_imports)]
 use tracing::{debug, error, info, warn};
 
-use crate::{daemon::send_event_from_server, db, statics::{CONFIG, DAEMON_CHANNEL_MAP, DAEMON_ID_MAP, DAEMON_LISTEN_MAP, DECRYPTER, WEB_CHANNEL_MAP, WEB_KEY_CACHE, WEB_LISTEN_MAP}, types::{Rx, Tx}};
+use crate::{daemon::DaemonServer, db, statics::{CONFIG, DAEMON_CHANNEL_MAP, DAEMON_ID_MAP, DAEMON_LISTEN_MAP, DECRYPTER, WEB_CHANNEL_MAP, WEB_KEY_CACHE, WEB_LISTEN_MAP}, types::{Rx, Tx}};
 
 pub struct WebHandshake {
     user_id: u32,
@@ -423,6 +423,39 @@ async fn handle_listen(listen_packet: WSListenPacket, addr: SocketAddr) -> Resul
     #[cfg(feature = "lock_debug")]
     debug!("[{}:{}] dropped DAEMON_ID_MAP", file!(), line!());
 
+    Ok(())
+}
+
+pub async fn send_event_from_server(uuid: &Uuid, event: EventData) -> Result<(), String> {
+    #[cfg(feature = "lock_debug")]
+    debug!("[{}:{}] awaiting DAEMON_LISTEN_MAP", file!(), line!());
+    let map = DAEMON_LISTEN_MAP.borrow();
+    #[cfg(feature = "lock_debug")]
+    debug!("[{}:{}] got DAEMON_LISTEN_MAP", file!(), line!());
+    let daemon = map.get(uuid).ok_or("Daemon not found in DaemonListenMap")?;
+    let clients = daemon.get(&event.event_type());
+
+    if let Some(clients) = clients {
+        for client in clients.iter() {
+            #[cfg(feature = "lock_debug")]
+            debug!("[{}:{}] awaiting WEB_CHANNEL_MAP", file!(), line!());
+            let map = WEB_CHANNEL_MAP.borrow();
+            #[cfg(feature = "lock_debug")]
+            debug!("[{}:{}] got WEB_CHANNEL_MAP", file!(), line!());
+            let socket = map.get(client).ok_or("Disconnected client still in WebChannelMap")?;
+
+            socket.tx.unbounded_send(Message::Text(encrypt_packet(SWEventPacket {
+                event: event.clone(),
+                daemon: *uuid,
+            }.to_packet()?, &socket.handshake.as_ref().ok_or("Client hasn't requested authentication")?.encrypter)?)).map_err(|_| "Could not send packet to client")?;
+
+            #[cfg(feature = "lock_debug")]
+            debug!("[{}:{}] dropped WEB_CHANNEL_MAP", file!(), line!());
+        }
+    }
+
+    #[cfg(feature = "lock_debug")]
+    debug!("[{}:{}] dropped DAEMON_LISTEN_MAP", file!(), line!());
     Ok(())
 }
 

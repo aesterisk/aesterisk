@@ -1,13 +1,12 @@
 use std::sync::Arc;
 
-use daemon_server::DaemonServer;
+use daemon::DaemonServer;
 use futures_util::join;
 use server::Server;
 use tracing::{info, warn};
 
 mod config;
 mod daemon;
-mod daemon_server;
 mod db;
 mod logging;
 mod server;
