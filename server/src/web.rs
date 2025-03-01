@@ -4,7 +4,7 @@ use futures_channel::mpsc::unbounded;
 use futures_util::{future, pin_mut, stream::{SplitSink, SplitStream}, FutureExt, StreamExt, TryStreamExt};
 use josekit::{jwe::{alg::rsaes::{RsaesJweDecrypter, RsaesJweEncrypter}, JweHeader}, jwt::{self, JwtPayload, JwtPayloadValidator}};
 use openssl::rand::rand_bytes;
-use sqlx::{types::Uuid, PgPool};
+use sqlx::types::Uuid;
 use tokio::net::{TcpListener, TcpStream};
 use tokio_tungstenite::{tungstenite::{self, Message}, WebSocketStream};
 
@@ -12,7 +12,7 @@ use packet::{events::{EventData, EventType, NodeStatusEvent}, server_daemon::lis
 #[allow(unused_imports)]
 use tracing::{debug, error, info, warn};
 
-use crate::{daemon::send_event_from_server, Rx, Tx, CONFIG, DAEMON_CHANNEL_MAP, DAEMON_ID_MAP, DAEMON_LISTEN_MAP, DECRYPTER, WEB_CHANNEL_MAP, WEB_KEY_CACHE, WEB_LISTEN_MAP};
+use crate::{daemon::send_event_from_server, db, statics::{CONFIG, DAEMON_CHANNEL_MAP, DAEMON_ID_MAP, DAEMON_LISTEN_MAP, DECRYPTER, WEB_CHANNEL_MAP, WEB_KEY_CACHE, WEB_LISTEN_MAP}, types::{Rx, Tx}};
 
 pub struct WebHandshake {
     user_id: u32,
@@ -25,7 +25,7 @@ pub struct WebSocket {
     pub handshake: Option<WebHandshake>,
 }
 
-pub async fn start(pool: PgPool) {
+pub async fn start() {
     let try_socket = TcpListener::bind(&CONFIG.sockets.web).await;
     let listener = match try_socket {
         Ok(listener) => listener,
@@ -42,7 +42,7 @@ pub async fn start(pool: PgPool) {
 
         match conn {
             Ok((stream, addr)) => {
-                tokio::spawn(accept_connection(stream, addr, pool.clone()).then(|res| match res {
+                tokio::spawn(accept_connection(stream, addr).then(|res| match res {
                     Ok(_) => future::ready(()),
                     Err(e) => {
                         error!("Error in connection: {}", e);
@@ -75,8 +75,8 @@ fn error_to_string(e: tungstenite::Error) -> String {
     }
 }
 
-#[tracing::instrument(name = "web", skip(raw_stream, pool), fields(%addr))]
-async fn accept_connection(raw_stream: TcpStream, addr: SocketAddr, pool: PgPool) -> Result<(), String> {
+#[tracing::instrument(name = "web", skip(raw_stream), fields(%addr))]
+async fn accept_connection(raw_stream: TcpStream, addr: SocketAddr) -> Result<(), String> {
     info!("Accepted TCP connection");
 
     let stream = tokio_tungstenite::accept_async(raw_stream).await.map_err(|e| format!("Could not accept connection: {}", error_to_string(e)))?;
@@ -94,7 +94,7 @@ async fn accept_connection(raw_stream: TcpStream, addr: SocketAddr, pool: PgPool
     #[cfg(feature = "lock_debug")]
     debug!("[{}:{}] got WEB_CHANNEL_MAP", file!(), line!());
 
-    handle_client(write, read, addr, rx, pool).await?;
+    handle_client(write, read, addr, rx).await?;
 
     #[cfg(feature = "lock_debug")]
     debug!("[{}:{}] dropped WEB_CHANNEL_MAP", file!(), line!());
@@ -103,7 +103,7 @@ async fn accept_connection(raw_stream: TcpStream, addr: SocketAddr, pool: PgPool
 }
 
 
-async fn handle_client(write: SplitSink<WebSocketStream<TcpStream>, Message>, read: SplitStream<WebSocketStream<TcpStream>>, addr: SocketAddr, rx: Rx, pool: PgPool) -> Result<(), String> {
+async fn handle_client(write: SplitSink<WebSocketStream<TcpStream>, Message>, read: SplitStream<WebSocketStream<TcpStream>>, addr: SocketAddr, rx: Rx) -> Result<(), String> {
     info!("Established WebSocket connection");
 
     let incoming = read.try_filter(|msg| future::ready(msg.is_text())).for_each(|msg| async {
@@ -123,7 +123,7 @@ async fn handle_client(write: SplitSink<WebSocketStream<TcpStream>, Message>, re
             }
         };
 
-        tokio::spawn(handle_packet(text, addr, pool.clone()).then(|res| match res {
+        tokio::spawn(handle_packet(text, addr).then(|res| match res {
             Ok(_) => future::ready(()),
             Err(e) => {
                 error!("Error handling packet: {}", e);
@@ -199,13 +199,13 @@ async fn handle_client(write: SplitSink<WebSocketStream<TcpStream>, Message>, re
     Ok(())
 }
 
-#[tracing::instrument(name = "web", skip(msg, pool), fields(%addr))]
-async fn handle_packet(msg: String, addr: SocketAddr, pool: PgPool) -> Result<(), String> {
+#[tracing::instrument(name = "web", skip(msg), fields(%addr))]
+async fn handle_packet(msg: String, addr: SocketAddr) -> Result<(), String> {
     let packet = decrypt_packet(&msg, &DECRYPTER)?;
 
     match packet.id {
         ID::WSAuth => {
-            handle_auth(WSAuthPacket::parse(packet).expect("WSAuthPacket should be Some"), addr, pool).await
+            handle_auth(WSAuthPacket::parse(packet).expect("WSAuthPacket should be Some"), addr).await
         },
         ID::WSHandshakeResponse => {
             handle_handshake_response(WSHandshakeResponsePacket::parse(packet).expect("WSHandshakeResponsePacket should be Some"), addr).await
@@ -255,7 +255,7 @@ struct PublicKeyQuery {
     user_public_key: String,
 }
 
-async fn query_user_public_key(user_id: u32, pool: PgPool) -> Result<Arc<Vec<u8>>, String> {
+async fn query_user_public_key(user_id: u32) -> Result<Arc<Vec<u8>>, String> {
     {
         let cache = WEB_KEY_CACHE.borrow();
         if let Some(v) = cache.get(&user_id) {
@@ -263,14 +263,14 @@ async fn query_user_public_key(user_id: u32, pool: PgPool) -> Result<Arc<Vec<u8>
         }
     }
 
-    let res = sqlx::query_as!(PublicKeyQuery, "SELECT user_public_key FROM aesterisk.users WHERE user_id = $1", user_id as i32).fetch_one(&pool).await.map_err(|_| format!("User with ID {} does not exist", user_id))?;
+    let res = sqlx::query_as!(PublicKeyQuery, "SELECT user_public_key FROM aesterisk.users WHERE user_id = $1", user_id as i32).fetch_one(db::get()).await.map_err(|_| format!("User with ID {} does not exist", user_id))?;
 
     let cache = WEB_KEY_CACHE.borrow();
     cache.insert(user_id, Arc::new(res.user_public_key.into_bytes()));
     Ok(cache.get(&user_id).ok_or("key should be in cache")?.clone())
 }
 
-async fn handle_auth(auth_packet: WSAuthPacket, addr: SocketAddr, pool: PgPool) -> Result<(), String> {
+async fn handle_auth(auth_packet: WSAuthPacket, addr: SocketAddr) -> Result<(), String> {
     let mut challenge_bytes = [0; 256];
     rand_bytes(&mut challenge_bytes).map_err(|_| "Could not generate challenge")?;
     let challenge = challenge_bytes.iter().fold(String::new(), |mut s, byte| {
@@ -278,7 +278,7 @@ async fn handle_auth(auth_packet: WSAuthPacket, addr: SocketAddr, pool: PgPool) 
         s
     });
 
-    let key = query_user_public_key(auth_packet.user_id, pool).await?;
+    let key = query_user_public_key(auth_packet.user_id).await?;
 
     #[cfg(feature = "lock_debug")]
     debug!("[{}:{}] awaiting WEB_CHANNEL_MAP", file!(), line!());

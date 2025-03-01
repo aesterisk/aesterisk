@@ -4,7 +4,7 @@ use futures_channel::mpsc::unbounded;
 use futures_util::{future, pin_mut, stream::{SplitSink, SplitStream}, FutureExt, StreamExt, TryStreamExt};
 use josekit::{jwe::{alg::rsaes::{RsaesJweDecrypter, RsaesJweEncrypter}, JweHeader}, jwt::{self, JwtPayload, JwtPayloadValidator}};
 use openssl::rand::rand_bytes;
-use sqlx::{types::Uuid, PgPool};
+use sqlx::types::Uuid;
 use tokio::net::{TcpListener, TcpStream};
 use tokio_tungstenite::{tungstenite::{self, Message}, WebSocketStream};
 
@@ -12,12 +12,12 @@ use packet::{daemon_server::{auth::DSAuthPacket, event::DSEventPacket, handshake
 #[allow(unused_imports)]
 use tracing::{debug, error, info, warn};
 
-use crate::{Rx, Tx, CONFIG, DAEMON_CHANNEL_MAP, DAEMON_ID_MAP, DAEMON_KEY_CACHE, DAEMON_LISTEN_MAP, DECRYPTER, WEB_CHANNEL_MAP};
+use crate::{db, statics::{CONFIG, DAEMON_CHANNEL_MAP, DAEMON_ID_MAP, DAEMON_KEY_CACHE, DAEMON_LISTEN_MAP, DECRYPTER, WEB_CHANNEL_MAP}, types::{Rx, Tx}};
 
 pub struct DaemonHandshake {
-    daemon_uuid: Uuid,
+    pub daemon_uuid: Uuid,
     pub encrypter: RsaesJweEncrypter,
-    challenge: String,
+    pub challenge: String,
 }
 
 pub struct DaemonSocket {
@@ -25,7 +25,7 @@ pub struct DaemonSocket {
     pub handshake: Option<DaemonHandshake>,
 }
 
-pub async fn start(pool: PgPool) {
+pub async fn start() {
     let try_socket = TcpListener::bind(&CONFIG.sockets.daemon).await;
     let listener = match try_socket {
         Ok(listener) => listener,
@@ -42,7 +42,7 @@ pub async fn start(pool: PgPool) {
 
         match conn {
             Ok((stream, addr)) => {
-                tokio::spawn(accept_connection(stream, addr, pool.clone()).then(|res| match res {
+                tokio::spawn(accept_connection(stream, addr).then(|res| match res {
                     Ok(_) => future::ready(()),
                     Err(e) => {
                         error!("Error in connection: {}", e);
@@ -75,8 +75,8 @@ fn error_to_string(e: tungstenite::Error) -> String {
     }
 }
 
-#[tracing::instrument(name = "daemon", skip(raw_stream, pool), fields(%addr))]
-async fn accept_connection(raw_stream: TcpStream, addr: SocketAddr, pool: PgPool) -> Result<(), String> {
+#[tracing::instrument(name = "daemon", skip(raw_stream), fields(%addr))]
+async fn accept_connection(raw_stream: TcpStream, addr: SocketAddr) -> Result<(), String> {
     info!("Accepted TCP connection");
 
     let stream = tokio_tungstenite::accept_async(raw_stream).await.map_err(|e| format!("Could not accept connection: {}", error_to_string(e)))?;
@@ -93,7 +93,7 @@ async fn accept_connection(raw_stream: TcpStream, addr: SocketAddr, pool: PgPool
     #[cfg(feature = "lock_debug")]
     debug!("[{}:{}] got DAEMON_CHANNEL_MAP", file!(), line!());
 
-    handle_client(write, read, addr, rx, pool).await?;
+    handle_client(write, read, addr, rx).await?;
 
     #[cfg(feature = "lock_debug")]
     debug!("[{}:{}] dropped DAEMON_CHANNEL_MAP", file!(), line!());
@@ -101,7 +101,7 @@ async fn accept_connection(raw_stream: TcpStream, addr: SocketAddr, pool: PgPool
 }
 
 
-async fn handle_client(write: SplitSink<WebSocketStream<TcpStream>, Message>, read: SplitStream<WebSocketStream<TcpStream>>, addr: SocketAddr, rx: Rx, pool: PgPool) -> Result<(), String> {
+async fn handle_client(write: SplitSink<WebSocketStream<TcpStream>, Message>, read: SplitStream<WebSocketStream<TcpStream>>, addr: SocketAddr, rx: Rx) -> Result<(), String> {
     info!("Established WebSocket connection");
 
     let incoming = read.try_filter(|msg| future::ready(msg.is_text())).for_each(|msg| async {
@@ -121,7 +121,7 @@ async fn handle_client(write: SplitSink<WebSocketStream<TcpStream>, Message>, re
             }
         };
 
-        tokio::spawn(handle_packet(text, addr, pool.clone()).then(|res| match res {
+        tokio::spawn(handle_packet(text, addr).then(|res| match res {
             Ok(_) => future::ready(()),
             Err(e) => {
                 error!("Error handling packet: {}", e);
@@ -166,13 +166,13 @@ async fn handle_client(write: SplitSink<WebSocketStream<TcpStream>, Message>, re
     Ok(())
 }
 
-#[tracing::instrument(name = "daemon", skip(msg, pool), fields(%addr))]
-async fn handle_packet(msg: String, addr: SocketAddr, pool: PgPool) -> Result<(), String> {
+#[tracing::instrument(name = "daemon", skip(msg), fields(%addr))]
+async fn handle_packet(msg: String, addr: SocketAddr) -> Result<(), String> {
     let packet = decrypt_packet(&msg, &DECRYPTER, &addr).await?;
 
     match packet.id {
         ID::DSAuth => {
-            handle_auth(DSAuthPacket::parse(packet).expect("DSAuthPacket should be Some"), addr, pool).await
+            handle_auth(DSAuthPacket::parse(packet).expect("DSAuthPacket should be Some"), addr).await
         },
         ID::DSHandshakeResponse => {
             handle_handshake_response(DSHandshakeResponsePacket::parse(packet).expect("DSHandshakeResponsePacket should be Some"), addr).await
@@ -234,7 +234,7 @@ struct PublicKeyQuery {
     node_public_key: String,
 }
 
-async fn query_user_public_key(daemon_uuid: &Uuid, pool: PgPool) -> Result<Arc<Vec<u8>>, String> {
+async fn query_user_public_key(daemon_uuid: &Uuid) -> Result<Arc<Vec<u8>>, String> {
     {
         let cache = DAEMON_KEY_CACHE.borrow();
         if let Some(v) = cache.get(daemon_uuid) {
@@ -242,14 +242,14 @@ async fn query_user_public_key(daemon_uuid: &Uuid, pool: PgPool) -> Result<Arc<V
         }
     }
 
-    let res = sqlx::query_as!(PublicKeyQuery, "SELECT node_public_key FROM aesterisk.nodes WHERE node_uuid = $1", daemon_uuid).fetch_one(&pool).await.map_err(|_| format!("Node with UUID {} does not exist", &daemon_uuid))?;
+    let res = sqlx::query_as!(PublicKeyQuery, "SELECT node_public_key FROM aesterisk.nodes WHERE node_uuid = $1", daemon_uuid).fetch_one(db::get()).await.map_err(|_| format!("Node with UUID {} does not exist", &daemon_uuid))?;
 
     let cache = DAEMON_KEY_CACHE.borrow();
     cache.insert(*daemon_uuid, Arc::new(res.node_public_key.into_bytes()));
     Ok(cache.get(daemon_uuid).ok_or("key should be in cache")?.clone())
 }
 
-async fn handle_auth(auth_packet: DSAuthPacket, addr: SocketAddr, pool: PgPool) -> Result<(), String> {
+async fn handle_auth(auth_packet: DSAuthPacket, addr: SocketAddr) -> Result<(), String> {
     let mut challenge_bytes = [0; 256];
     rand_bytes(&mut challenge_bytes).map_err(|_| "Could not generate challenge")?;
     let challenge = challenge_bytes.iter().fold(String::new(), |mut s, byte| {
@@ -258,7 +258,7 @@ async fn handle_auth(auth_packet: DSAuthPacket, addr: SocketAddr, pool: PgPool) 
     });
 
     let uuid = Uuid::parse_str(&auth_packet.daemon_uuid).map_err(|_| "Could not parse UUID")?;
-    let key = query_user_public_key(&uuid, pool).await?;
+    let key = query_user_public_key(&uuid).await?;
 
     #[cfg(feature = "lock_debug")]
     debug!("[{}:{}] awaiting DAEMON_CHANNEL_MAP", file!(), line!());
