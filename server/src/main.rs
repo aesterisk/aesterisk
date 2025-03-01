@@ -1,9 +1,11 @@
 use std::sync::Arc;
 
-use daemon::DaemonServer;
 use futures_util::join;
-use server::Server;
 use tracing::{info, warn};
+
+use daemon::DaemonServer;
+use web::WebServer;
+use server::Server;
 
 mod config;
 mod daemon;
@@ -24,12 +26,13 @@ async fn main() {
     db::init().await.expect("failed to initialize database connection");
 
     let daemon_server = Arc::new(DaemonServer::new());
+    let web_server = Arc::new(WebServer::new());
 
     info!("Starting Daemon Server...");
     let daemon_server_handle = tokio::spawn(daemon_server.start());
 
     info!("Starting Web Server...");
-    let web_server_handle = tokio::spawn(web::start());
+    let web_server_handle = tokio::spawn(web_server.start());
 
     let (web_res, daemon_res) = join!(web_server_handle, daemon_server_handle);
     web_res.expect("failed to join web server handle");

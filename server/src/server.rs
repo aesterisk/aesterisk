@@ -7,7 +7,7 @@ use josekit::{jwe::{alg::rsaes::{RsaesJweDecrypter, RsaesJweEncrypter}, JweHeade
 use packet::Packet;
 use tokio::net::{TcpListener, TcpStream};
 use tokio_tungstenite::{tungstenite::{self, Message}, WebSocketStream};
-use tracing::{error, info, span, Level, Metadata, Span};
+use tracing::{debug, error, info, span, Level, Metadata, Span};
 use tracing_futures::Instrument;
 
 use crate::types::{Rx, Tx};
@@ -64,7 +64,7 @@ pub trait Server: Send + Sync + 'static {
     }
 
     async fn accept_connection(self: Arc<Self>, raw_stream: TcpStream, addr: SocketAddr) -> Result<(), String> {
-        info!("Accepted TCP connection");
+        debug!("Accepted TCP connection");
 
         let stream = tokio_tungstenite::accept_async(raw_stream).await.map_err(|e| format!("Could not accept connection: {}", self.error_to_string(e)))?;
 
@@ -72,7 +72,7 @@ pub trait Server: Send + Sync + 'static {
 
         let (tx, rx) = unbounded();
 
-        self.on_accept(addr, tx).await?;
+        self.on_accept(addr, tx).instrument(Span::current()).await?;
 
         self.handle_client(write, read, addr, rx).await?;
 
@@ -80,7 +80,7 @@ pub trait Server: Send + Sync + 'static {
     }
 
     async fn handle_client(self: Arc<Self>, write: SplitSink<WebSocketStream<TcpStream>, Message>, read: SplitStream<WebSocketStream<TcpStream>>, addr: SocketAddr, rx: Rx) -> Result<(), String> {
-        info!("Established WebSocket connection");
+        debug!("Established WebSocket connection");
 
         let incoming = read.try_filter(|msg| future::ready(msg.is_text())).for_each(|msg| async {
             let msg = match msg {
@@ -116,7 +116,7 @@ pub trait Server: Send + Sync + 'static {
         pin_mut!(incoming, outgoing);
         future::select(incoming, outgoing).await;
 
-        let res = self.on_disconnect(addr).await;
+        let res = self.on_disconnect(addr).instrument(Span::current()).await;
 
         info!("Disconnected");
 
@@ -126,7 +126,7 @@ pub trait Server: Send + Sync + 'static {
     async fn handle_packet(self: Arc<Self>, msg: String, addr: SocketAddr) -> Result<(), String> {
         let packet = self.decrypt_packet(&msg, self.get_decrypter(), addr).await?;
 
-        self.on_packet(packet, addr).await
+        self.on_packet(packet, addr).instrument(Span::current()).await
     }
 
     fn encrypt_packet(&self, packet: Packet, encrypter: &RsaesJweEncrypter) -> Result<String, String> {
@@ -156,7 +156,7 @@ pub trait Server: Send + Sync + 'static {
         match validator.validate(&payload) {
             Ok(()) => (),
             Err(e) => {
-                self.on_decrypt_error(addr).await?;
+                self.on_decrypt_error(addr).instrument(Span::current()).await?;
                 return Err(format!("Invalid token: {}", e));
             }
         }

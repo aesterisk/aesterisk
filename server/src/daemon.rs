@@ -6,7 +6,8 @@ use openssl::rand::rand_bytes;
 use packet::{daemon_server::{auth::DSAuthPacket, event::DSEventPacket, handshake_response::DSHandshakeResponsePacket}, events::{EventData, NodeStatusEvent}, server_daemon::{auth_response::SDAuthResponsePacket, handshake_request::SDHandshakeRequestPacket, listen::SDListenPacket}, server_web::event::SWEventPacket, Packet, ID};
 use sqlx::types::Uuid;
 use tokio_tungstenite::tungstenite::Message;
-use tracing::{info, warn};
+use tracing::{info, instrument, warn, Span};
+use tracing_futures::Instrument;
 
 use crate::{db, server::Server, statics::{CONFIG, DAEMON_CHANNEL_MAP, DAEMON_ID_MAP, DAEMON_KEY_CACHE, DAEMON_LISTEN_MAP, DECRYPTER, WEB_CHANNEL_MAP}, types::Tx};
 
@@ -28,7 +29,6 @@ struct PublicKeyQuery {
 }
 
 impl DaemonServer {
-
     pub fn new() -> Self {
         Self
     }
@@ -197,12 +197,10 @@ impl DaemonServer {
 
         Ok(())
     }
-
 }
 
 #[async_trait]
 impl Server for DaemonServer {
-
     fn get_tracing_name(&self) -> &'static str {
         "daemon"
     }
@@ -275,6 +273,7 @@ impl Server for DaemonServer {
         Ok(())
     }
 
+    #[instrument("daemon", skip(self, packet))]
     async fn on_packet(&self, packet: Packet, addr: SocketAddr) -> Result<(), String> {
         match packet.id {
             ID::DSAuth => {
@@ -291,5 +290,4 @@ impl Server for DaemonServer {
             },
         }
     }
-
 }
