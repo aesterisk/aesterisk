@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use futures_util::join;
+use state::State;
 use tracing::{info, warn};
 
 use daemon::DaemonServer;
@@ -13,6 +14,7 @@ mod db;
 mod logging;
 mod server;
 mod statics;
+mod state;
 mod types;
 mod web;
 
@@ -25,8 +27,10 @@ async fn main() {
 
     db::init().await.expect("failed to initialize database connection");
 
-    let daemon_server = Arc::new(DaemonServer::new());
-    let web_server = Arc::new(WebServer::new());
+    let state = Arc::new(State::new());
+
+    let daemon_server = Arc::new(DaemonServer::new(Arc::clone(&state)));
+    let web_server = Arc::new(WebServer::new(Arc::clone(&state)));
 
     info!("Starting Daemon Server...");
     let daemon_server_handle = tokio::spawn(daemon_server.start());

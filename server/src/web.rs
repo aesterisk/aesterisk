@@ -8,9 +8,11 @@ use sqlx::types::Uuid;
 use tokio_tungstenite::tungstenite::Message;
 use tracing::{info, warn};
 
-use crate::{db, server::Server, statics::{CONFIG, DAEMON_CHANNEL_MAP, DAEMON_ID_MAP, DAEMON_LISTEN_MAP, DECRYPTER, WEB_CHANNEL_MAP, WEB_KEY_CACHE, WEB_LISTEN_MAP}, types::Tx};
+use crate::{db, server::Server, state::State, statics::{CONFIG, DECRYPTER}, types::{DaemonChannelMap, DaemonIDMap, DaemonListenMap, Tx, WebChannelMap, WebKeyCache, WebListenMap}};
 
-pub struct WebServer;
+pub struct WebServer {
+    state: Arc<State>,
+}
 
 pub struct WebHandshake {
     user_id: u32,
@@ -28,21 +30,23 @@ struct PublicKeyQuery {
 }
 
 impl WebServer {
-    pub fn new() -> Self {
-        Self
+    pub fn new(state: Arc<State>) -> Self {
+        Self {
+            state
+        }
     }
 
     async fn update_listens_for_daemon(&self, addr: &SocketAddr, uuid: &Uuid) -> Result<(), String> {
         #[cfg(feature = "lock_debug")]
         debug!("[{}:{}] awaiting DAEMON_CHANNEL_MAP", file!(), line!());
-        let daemon_channel_map = DAEMON_CHANNEL_MAP.borrow();
+        let daemon_channel_map: &DaemonChannelMap = self.state.daemon_channel_map.borrow();
         #[cfg(feature = "lock_debug")]
         debug!("[{}:{}] got DAEMON_CHANNEL_MAP", file!(), line!());
         let socket = daemon_channel_map.get(addr).ok_or("Daemon not found in DaemonChannelMap")?;
 
         #[cfg(feature = "lock_debug")]
         debug!("[{}:{}] awaiting DAEMON_LISTEN_MAP", file!(), line!());
-        let daemon_listen_map = DAEMON_LISTEN_MAP.borrow();
+        let daemon_listen_map: &DaemonListenMap = self.state.daemon_listen_map.borrow();
         #[cfg(feature = "lock_debug")]
         debug!("[{}:{}] got DAEMON_LISTEN_MAP", file!(), line!());
         let events = daemon_listen_map.get(uuid).ok_or("Daemon not found in DaemonListenMap")?.keys().copied().collect::<Vec<_>>();
@@ -60,7 +64,7 @@ impl WebServer {
 
     async fn query_user_public_key(&self, user_id: u32) -> Result<Arc<Vec<u8>>, String> {
         {
-            let cache = WEB_KEY_CACHE.borrow();
+            let cache: &WebKeyCache = self.state.web_key_cache.borrow();
             if let Some(v) = cache.get(&user_id) {
                 return Ok(v.clone());
             }
@@ -68,7 +72,7 @@ impl WebServer {
 
         let res = sqlx::query_as!(PublicKeyQuery, "SELECT user_public_key FROM aesterisk.users WHERE user_id = $1", user_id as i32).fetch_one(db::get()).await.map_err(|_| format!("User with ID {} does not exist", user_id))?;
 
-        let cache = WEB_KEY_CACHE.borrow();
+        let cache: &WebKeyCache = self.state.web_key_cache.borrow();
         cache.insert(user_id, Arc::new(res.user_public_key.into_bytes()));
         Ok(cache.get(&user_id).ok_or("key should be in cache")?.clone())
     }
@@ -85,7 +89,7 @@ impl WebServer {
 
         #[cfg(feature = "lock_debug")]
         debug!("[{}:{}] awaiting WEB_CHANNEL_MAP", file!(), line!());
-        let clients = WEB_CHANNEL_MAP.borrow();
+        let clients: &WebChannelMap = self.state.web_channel_map.borrow();
         #[cfg(feature = "lock_debug")]
         debug!("[{}:{}] got WEB_CHANNEL_MAP", file!(), line!());
         let mut client = clients.get_mut(&addr).ok_or("Client not found in channel_map")?;
@@ -115,7 +119,7 @@ impl WebServer {
     async fn handle_handshake_response(&self, handshake_reponse_packet: WSHandshakeResponsePacket, addr: SocketAddr) -> Result<(), String> {
         #[cfg(feature = "lock_debug")]
         debug!("[{}:{}] awaiting WEB_CHANNEL_MAP", file!(), line!());
-        let clients = WEB_CHANNEL_MAP.borrow();
+        let clients: &WebChannelMap = self.state.web_channel_map.borrow();
         #[cfg(feature = "lock_debug")]
         debug!("[{}:{}] got WEB_CHANNEL_MAP", file!(), line!());
         let client = clients.get_mut(&addr).ok_or("Client not found in channel_map")?;
@@ -152,19 +156,19 @@ impl WebServer {
 
         #[cfg(feature = "lock_debug")]
         debug!("[{}:{}] awaiting DAEMON_ID_MAP", file!(), line!());
-        let daemon_id_map = DAEMON_ID_MAP.borrow();
+        let daemon_id_map: &DaemonIDMap = self.state.daemon_id_map.borrow();
         #[cfg(feature = "lock_debug")]
         debug!("[{}:{}] got DAEMON_ID_MAP", file!(), line!());
 
         {
             #[cfg(feature = "lock_debug")]
             debug!("[{}:{}] awaiting WEB_LISTEN_MAP", file!(), line!());
-            let web_listen_map = WEB_LISTEN_MAP.borrow();
+            let web_listen_map: &WebListenMap = self.state.web_listen_map.borrow();
             #[cfg(feature = "lock_debug")]
             debug!("[{}:{}] got WEB_LISTEN_MAP", file!(), line!());
             #[cfg(feature = "lock_debug")]
             debug!("[{}:{}] awaiting DAEMON_LISTEN_MAP", file!(), line!());
-            let daemon_listen_map = DAEMON_LISTEN_MAP.borrow();
+            let daemon_listen_map: &DaemonListenMap = self.state.daemon_listen_map.borrow();
             #[cfg(feature = "lock_debug")]
             debug!("[{}:{}] got DAEMON_LISTEN_MAP", file!(), line!());
 
@@ -232,7 +236,7 @@ impl WebServer {
     pub async fn send_event_from_server(&self, uuid: &Uuid, event: EventData) -> Result<(), String> {
         #[cfg(feature = "lock_debug")]
         debug!("[{}:{}] awaiting DAEMON_LISTEN_MAP", file!(), line!());
-        let map = DAEMON_LISTEN_MAP.borrow();
+        let map: &DaemonListenMap = self.state.daemon_listen_map.borrow();
         #[cfg(feature = "lock_debug")]
         debug!("[{}:{}] got DAEMON_LISTEN_MAP", file!(), line!());
         let daemon = map.get(uuid).ok_or("Daemon not found in DaemonListenMap")?;
@@ -242,7 +246,7 @@ impl WebServer {
             for client in clients.iter() {
                 #[cfg(feature = "lock_debug")]
                 debug!("[{}:{}] awaiting WEB_CHANNEL_MAP", file!(), line!());
-                let map = WEB_CHANNEL_MAP.borrow();
+                let map: &WebChannelMap = self.state.web_channel_map.borrow();
                 #[cfg(feature = "lock_debug")]
                 debug!("[{}:{}] got WEB_CHANNEL_MAP", file!(), line!());
                 let socket = map.get(client).ok_or("Disconnected client still in WebChannelMap")?;
@@ -285,7 +289,7 @@ impl Server for WebServer {
         #[cfg(feature = "lock_debug")]
         debug!("[{}:{}] awaiting WEB_CHANNEL_MAP", file!(), line!());
 
-        WEB_CHANNEL_MAP.insert(addr, WebSocket {
+        self.state.web_channel_map.insert(addr, WebSocket {
             tx,
             handshake: None,
         });
@@ -305,17 +309,17 @@ impl Server for WebServer {
         {
             #[cfg(feature = "lock_debug")]
             debug!("[{}:{}] awaiting WEB_LISTEN_MAP", file!(), line!());
-            let web_listen_map = WEB_LISTEN_MAP.borrow();
+            let web_listen_map: &WebListenMap = self.state.web_listen_map.borrow();
             #[cfg(feature = "lock_debug")]
             debug!("[{}:{}] got WEB_LISTEN_MAP", file!(), line!());
             #[cfg(feature = "lock_debug")]
             debug!("[{}:{}] awaiting DAEMON_LISTEN_MAP", file!(), line!());
-            let daemon_listen_map = DAEMON_LISTEN_MAP.borrow();
+            let daemon_listen_map: &DaemonListenMap = self.state.daemon_listen_map.borrow();
             #[cfg(feature = "lock_debug")]
             debug!("[{}:{}] got DAEMON_LISTEN_MAP", file!(), line!());
             #[cfg(feature = "lock_debug")]
             debug!("[{}:{}] awaiting WEB_CHANNEL_MAP", file!(), line!());
-            let web_channel_map = WEB_CHANNEL_MAP.borrow();
+            let web_channel_map: &WebChannelMap = self.state.web_channel_map.borrow();
             #[cfg(feature = "lock_debug")]
             debug!("[{}:{}] got WEB_CHANNEL_MAP", file!(), line!());
 
@@ -348,7 +352,7 @@ impl Server for WebServer {
         for daemon in update_daemons {
             #[cfg(feature = "lock_debug")]
             debug!("[{}:{}] awaiting DAEMON_ID_MAP", file!(), line!());
-            if let Some(daemon_addr) = DAEMON_ID_MAP.get(&daemon) {
+            if let Some(daemon_addr) = self.state.daemon_id_map.get(&daemon) {
                 self.update_listens_for_daemon(&daemon_addr, &daemon).await?;
             }
             #[cfg(feature = "lock_debug")]
@@ -363,7 +367,7 @@ impl Server for WebServer {
     async fn on_decrypt_error(&self, addr: SocketAddr) -> Result<(), String> {
         #[cfg(feature = "lock_debug")]
         debug!("[{}:{}] awaiting WEB_CHANNEL_MAP", file!(), line!());
-        WEB_CHANNEL_MAP.get(&addr).ok_or("Client not found in channel_map")?.tx.close_channel();
+        self.state.web_channel_map.get(&addr).ok_or("Client not found in channel_map")?.tx.close_channel();
         #[cfg(feature = "lock_debug")]
         debug!("[{}:{}] got WEB_CHANNEL_MAP", file!(), line!());
         #[cfg(feature = "lock_debug")]
