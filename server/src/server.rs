@@ -1,16 +1,16 @@
-use std::{net::SocketAddr, sync::Arc, time::{Duration, SystemTime}};
+use std::{net::SocketAddr, sync::Arc};
 
 use async_trait::async_trait;
 use futures_channel::mpsc::unbounded;
 use futures_util::{future, pin_mut, stream::{SplitSink, SplitStream}, StreamExt, TryStreamExt};
-use josekit::{jwe::{alg::rsaes::{RsaesJweDecrypter, RsaesJweEncrypter}, JweHeader}, jwt::{self, JwtPayload, JwtPayloadValidator}};
+use josekit::jwe::alg::rsaes::RsaesJweDecrypter;
 use packet::Packet;
 use tokio::net::{TcpListener, TcpStream};
 use tokio_tungstenite::{tungstenite::{self, Message}, WebSocketStream};
-use tracing::{debug, error, info, span, Level, Metadata, Span};
+use tracing::{debug, error, info, span, Level, Span};
 use tracing_futures::Instrument;
 
-use crate::types::{Rx, Tx};
+use crate::{encryption, state::{Rx, Tx}};
 
 #[async_trait]
 pub trait Server: Send + Sync + 'static {
@@ -67,7 +67,6 @@ pub trait Server: Send + Sync + 'static {
         debug!("Accepted TCP connection");
 
         let stream = tokio_tungstenite::accept_async(raw_stream).await.map_err(|e| format!("Could not accept connection: {}", self.error_to_string(e)))?;
-
         let (write, read) = stream.split();
 
         let (tx, rx) = unbounded();
@@ -124,47 +123,13 @@ pub trait Server: Send + Sync + 'static {
     }
 
     async fn handle_packet(self: Arc<Self>, msg: String, addr: SocketAddr) -> Result<(), String> {
-        let packet = self.decrypt_packet(&msg, self.get_decrypter(), addr).await?;
+        let on_err = async || {
+            self.on_decrypt_error(addr).await
+        };
+
+        let packet = encryption::decrypt_packet(&msg, self.get_decrypter(), self.get_issuer(), Some(on_err)).await?;
 
         self.on_packet(packet, addr).instrument(Span::current()).await
-    }
-
-    fn encrypt_packet(&self, packet: Packet, encrypter: &RsaesJweEncrypter) -> Result<String, String> {
-        let mut header = JweHeader::new();
-        header.set_token_type("JWT");
-        header.set_algorithm("RSA-OAEP");
-        header.set_content_encryption("A256GCM");
-
-        let mut payload = JwtPayload::new();
-        payload.set_claim("p", Some(serde_json::to_value(packet).map_err(|_| "packet should be serializable")?)).map_err(|_| "should set claim correctly")?;
-        payload.set_issuer("aesterisk/server");
-        payload.set_issued_at(&SystemTime::now());
-        payload.set_expires_at(&SystemTime::now().checked_add(Duration::from_secs(60)).ok_or("duration overflow")?);
-
-        Ok(jwt::encode_with_encrypter(&payload, &header, encrypter).map_err(|_| "could not encrypt token")?)
-    }
-
-    async fn decrypt_packet(&self, msg: &str, decrypter: &RsaesJweDecrypter, addr: SocketAddr) -> Result<Packet, String> {
-        let (payload, _) = jwt::decode_with_decrypter(msg, decrypter).expect("should decrypt");
-
-        let mut validator = JwtPayloadValidator::new();
-        validator.set_issuer(self.get_issuer());
-        validator.set_base_time(SystemTime::now());
-        validator.set_min_issued_time(SystemTime::now() - Duration::from_secs(60));
-        validator.set_max_issued_time(SystemTime::now());
-
-        match validator.validate(&payload) {
-            Ok(()) => (),
-            Err(e) => {
-                self.on_decrypt_error(addr).instrument(Span::current()).await?;
-                return Err(format!("Invalid token: {}", e));
-            }
-        }
-
-        // TODO: maybe don't clone hehe
-        let try_packet = Packet::from_value(payload.claim("p").expect("should have .p").clone());
-
-        try_packet.ok_or(format!("Could not parse packet: \"{}\"", msg))
     }
 
     fn error_to_string(&self, e: tungstenite::Error) -> String {

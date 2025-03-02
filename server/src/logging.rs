@@ -1,10 +1,10 @@
 use std::{io, sync::OnceLock};
 
-use tracing::{info, Level};
+use tracing::Level;
 use tracing_appender::{non_blocking::WorkerGuard, rolling::Rotation};
 use tracing_subscriber::{fmt::writer::MakeWriterExt, layer::SubscriberExt, util::SubscriberInitExt};
 
-use crate::statics::CONFIG;
+use crate::config::CONFIG;
 
 static FILE_GUARD: OnceLock<WorkerGuard> = OnceLock::new();
 static STDOUT_GUARD: OnceLock<WorkerGuard> = OnceLock::new();

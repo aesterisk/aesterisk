@@ -11,11 +11,10 @@ use server::Server;
 mod config;
 mod daemon;
 mod db;
+mod encryption;
 mod logging;
 mod server;
-mod statics;
 mod state;
-mod types;
 mod web;
 
 #[dotenvy::load]

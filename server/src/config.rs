@@ -1,3 +1,9 @@
+use lazy_static::lazy_static;
+
+lazy_static! {
+    pub static ref CONFIG: Config = load_or_create("config.toml");
+}
+
 #[derive(Debug, serde::Serialize, serde::Deserialize, Default)]
 pub struct Config {
     #[serde(default)]
