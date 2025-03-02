@@ -9,7 +9,7 @@ members = [
 
 [workspace.package]
 authors = ["yolocat-dev"]
-edition = "2021"
+edition = "2024"
 description = "Server management done right."
 license = "AGPL-3.0"
 readme = "README.md"
