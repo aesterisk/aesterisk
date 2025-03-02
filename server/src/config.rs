@@ -4,6 +4,7 @@ lazy_static! {
     pub static ref CONFIG: Config = load_or_create("config.toml");
 }
 
+/// The `Config` struct represents the configuration of the server.
 #[derive(Debug, serde::Serialize, serde::Deserialize, Default)]
 pub struct Config {
     #[serde(default)]
@@ -14,6 +15,7 @@ pub struct Config {
     pub logging: Logging,
 }
 
+/// The `Server` struct represents the server configuration.
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct Server {
     pub web_url: String,
@@ -29,6 +31,7 @@ impl Default for Server {
     }
 }
 
+/// The `Sockets` struct represents the socket configuration.
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct Sockets {
     pub web: String,
@@ -44,6 +47,7 @@ impl Default for Sockets {
     }
 }
 
+/// The `Logging` struct represents the logging configuration.
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct Logging {
     pub folder: String,
@@ -66,6 +70,8 @@ fn load(file: &str) -> Option<Config> {
     toml::from_str(&contents).ok()
 }
 
+/// Load the configuration from the given file, or create the file with the default configuration if
+/// it does not exist.
 pub fn load_or_create(file: &str) -> Config {
     let config = load(file).unwrap_or_default();
     save(&config, file);

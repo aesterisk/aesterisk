@@ -3,6 +3,7 @@ use tokio::sync::OnceCell;
 
 static DB_POOL: OnceCell<PgPool> = OnceCell::const_new();
 
+/// Initialise the database connection pool.
 pub async fn init() -> Result<(), sqlx::Error> {
     let pool = PgPoolOptions::new()
         .min_connections(1)
@@ -13,6 +14,7 @@ pub async fn init() -> Result<(), sqlx::Error> {
     Ok(())
 }
 
+/// Get the database connection pool.
 pub fn get() -> &'static PgPool {
     DB_POOL.get().expect("db pool not initialised")
 }

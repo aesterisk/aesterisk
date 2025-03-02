@@ -12,19 +12,30 @@ use tracing_futures::Instrument;
 
 use crate::{encryption, state::{Rx, Tx}};
 
+/// The main `Server` trait, which handles WebSocket connections, decryption and parsing of
+/// packets.
 #[async_trait]
 pub trait Server: Send + Sync + 'static {
 
+    /// Return the name to use with `tracing` logs
     fn get_tracing_name(&self) -> &'static str;
+    /// Return the address to bind to
     fn get_bind_addr(&self) -> &'static str;
+    /// Return the decrypter to use when decrypting packets
     fn get_decrypter(&self) -> &'static RsaesJweDecrypter;
+    /// Return the issuer to use when decrypting packets
     fn get_issuer(&self) -> &'static str;
 
+    /// Called when a new connection is accepted
     async fn on_accept(&self, addr: SocketAddr, tx: Tx) -> Result<(), String>;
+    /// Called when a connection is disconnected
     async fn on_disconnect(&self, addr: SocketAddr) -> Result<(), String>;
+    /// Called when a packet could not be decrypted
     async fn on_decrypt_error(&self, addr: SocketAddr) -> Result<(), String>;
+    /// Called when a packet is received
     async fn on_packet(&self, packet: Packet, addr: SocketAddr) -> Result<(), String>;
 
+    /// Start the serer.
     async fn start(self: Arc<Self>) {
         let tracing_name = self.as_ref().get_tracing_name();
         async move {
@@ -63,6 +74,7 @@ pub trait Server: Send + Sync + 'static {
         }.instrument(span!(Level::TRACE, "server", "type" = tracing_name)).await
     }
 
+    /// Handle a TCP connection.
     async fn accept_connection(self: Arc<Self>, raw_stream: TcpStream, addr: SocketAddr) -> Result<(), String> {
         debug!("Accepted TCP connection");
 
@@ -78,6 +90,7 @@ pub trait Server: Send + Sync + 'static {
         Ok(())
     }
 
+    /// Handle a WebSocket connection.
     async fn handle_client(self: Arc<Self>, write: SplitSink<WebSocketStream<TcpStream>, Message>, read: SplitStream<WebSocketStream<TcpStream>>, addr: SocketAddr, rx: Rx) -> Result<(), String> {
         debug!("Established WebSocket connection");
 
@@ -122,6 +135,7 @@ pub trait Server: Send + Sync + 'static {
         res
     }
 
+    /// Handle a packet.
     async fn handle_packet(self: Arc<Self>, msg: String, addr: SocketAddr) -> Result<(), String> {
         let on_err = async || {
             self.on_decrypt_error(addr).await
@@ -132,6 +146,7 @@ pub trait Server: Send + Sync + 'static {
         self.on_packet(packet, addr).instrument(Span::current()).await
     }
 
+    /// Convert a `tungstenite::Error` to a `String` in a pretty format.
     fn error_to_string(&self, e: tungstenite::Error) -> String {
         match e {
             tungstenite::Error::Utf8 => "Error in UTF-8 encoding".into(),

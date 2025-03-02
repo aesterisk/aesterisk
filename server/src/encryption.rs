@@ -18,6 +18,7 @@ fn read_key(file: &str) -> josekit::jwk::Jwk {
     key.to_jwk_private_key()
 }
 
+/// Encrypt a packet using the given encrypter
 pub fn encrypt_packet(packet: Packet, encrypter: &RsaesJweEncrypter) -> Result<String, String> {
     let mut header = JweHeader::new();
     header.set_token_type("JWT");
@@ -33,6 +34,7 @@ pub fn encrypt_packet(packet: Packet, encrypter: &RsaesJweEncrypter) -> Result<S
     Ok(jwt::encode_with_encrypter(&payload, &header, encrypter).map_err(|_| "could not encrypt token")?)
 }
 
+/// Decrypt a packet using the given decrypter
 pub async fn decrypt_packet(msg: &str, decrypter: &RsaesJweDecrypter, issuer: &str, on_err: Option<impl AsyncFnOnce() -> Result<(), String>>) -> Result<Packet, String> {
     let (payload, _) = jwt::decode_with_decrypter(msg, decrypter).expect("should decrypt");
 

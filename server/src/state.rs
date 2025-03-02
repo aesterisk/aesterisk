@@ -10,19 +10,34 @@ use tracing::warn;
 
 use crate::{daemon::{DaemonHandshake, DaemonSocket}, encryption, web::{WebHandshake, WebSocket}};
 
+/// `Tx` is a type alias for the transmitting end of an `mpsc::unbounded` channel.
 pub type Tx = mpsc::UnboundedSender<Message>;
+/// `Rx` is a type alias for the receiving end of an `mpsc::unbounded` channel.
 pub type Rx = mpsc::UnboundedReceiver<Message>;
 
+/// `WebChannelMap` is a type alias for a `DashMap` mapping a `SocketAddr` to a `WebSocket`.
 pub type WebChannelMap = Arc<DashMap<SocketAddr, WebSocket>>;
+/// `DaemonChannelMap` is a type alias for a `DashMap` mapping a user id (`u32`) to a key
+/// (`Arc<Vec<u8>>`).
 pub type WebKeyCache = Arc<DashMap<u32, Arc<Vec<u8>>>>;
 
+/// `DaemonChannelMap` is a type alias for a `DashMap` mapping a `SocketAddr` to a `DaemonSocket`.
 pub type DaemonChannelMap = Arc<DashMap<SocketAddr, DaemonSocket>>;
+/// `DaemonKeyCache` is a type alias for a `DashMap` mapping a `Uuid` to a key (`Arc<Vec<u8>>`).
 pub type DaemonKeyCache = Arc<DashMap<Uuid, Arc<Vec<u8>>>>;
 
+/// `DaemonListenMap` is a type alias for a `DashMap` mapping a `Uuid` to a `HashMap` of
+/// `EventType` to a `HashSet` of `SocketAddr`. Basically, it maps a daemon to a list of events
+/// which knows how many clients is currently listening to it.
 pub type DaemonListenMap = Arc<DashMap<Uuid, HashMap<EventType, HashSet<SocketAddr>>>>;
+/// `WebListenMap` is a type alias for a `DashMap` mapping a `SocketAddr` to a `HashMap` of
+/// `EventType` to a `HashSet` of `Uuid`. Basically, it maps a web client to a list of events which
+/// knows which daemons to send to.
 pub type WebListenMap = Arc<DashMap<SocketAddr, HashMap<EventType, HashSet<Uuid>>>>;
+/// `DaemonIDMap` is a type alias for a `DashMap` mapping a `Uuid` to a `SocketAddr`.
 pub type DaemonIDMap = Arc<DashMap<Uuid, SocketAddr>>;
 
+/// `State` is a struct containing all data that is required by `daemon` and `web` servers.
 pub struct State {
     web_channel_map: WebChannelMap,
     pub web_key_cache: WebKeyCache,
@@ -36,6 +51,7 @@ pub struct State {
 }
 
 impl State {
+    /// Creates a new `State` instance.
     pub fn new() -> Self {
         Self {
             web_channel_map: Arc::new(DashMap::new()),
@@ -48,6 +64,7 @@ impl State {
         }
     }
 
+    /// Sends an event from the server to the web clients listening.
     pub async fn send_event_from_server(&self, uuid: &Uuid, event: EventData) -> Result<(), String> {
         #[cfg(feature = "lock_debug")]
         debug!("[{}:{}] awaiting DAEMON_LISTEN_MAP", file!(), line!());
@@ -92,6 +109,7 @@ impl State {
         Ok(())
     }
 
+    /// Sends an event from the daemon to the server.
     pub async fn send_event_from_daemon(&self, addr: &SocketAddr, event: EventData) -> Result<(), String> {
         #[cfg(feature = "lock_debug")]
         debug!("[{}:{}] awaiting DAEMON_CHANNEL_MAP", file!(), line!());
@@ -106,6 +124,7 @@ impl State {
         self.send_event_from_server(&uuid, event).await
     }
 
+    /// Sends a handshake request to a daemon.
     pub async fn send_daemon_handshake_request(&self, addr: SocketAddr, uuid: Uuid, key: Arc<Vec<u8>>) -> Result<(), String> {
         let mut challenge_bytes = [0; 256];
         rand_bytes(&mut challenge_bytes).map_err(|_| "Could not generate challenge")?;
@@ -146,6 +165,7 @@ impl State {
         Ok(())
     }
 
+    /// Authenticates a daemon with the given challenge.
     pub fn authenticate_daemon(&self, addr: SocketAddr, challenge: String) -> Result<(), String> {
         #[cfg(feature = "lock_debug")]
         debug!("[{}:{}] awaiting DAEMON_CHANNEL_MAP", file!(), line!());
@@ -212,6 +232,7 @@ impl State {
         Ok(())
     }
 
+    /// Adds a daemon to the server.
     pub fn add_daemon(&self, addr: SocketAddr, tx: Tx) {
         #[cfg(feature = "lock_debug")]
         debug!("[{}:{}] awaiting DAEMON_CHANNEL_MAP", file!(), line!());
@@ -226,6 +247,8 @@ impl State {
         debug!("[{}:{}] dropped DAEMON_CHANNEL_MAP", file!(), line!());
     }
 
+    /// Removes a daemon from the server. Should only be used in the `on_disconnect` method, see
+    /// `disconnect_daemon` for a more general use case.
     pub async fn remove_daemon(&self, addr: SocketAddr) -> Result<(), String> {
         #[cfg(feature = "lock_debug")]
         debug!("[{}:{}] awaiting DAEMON_CHANNEL_MAP", file!(), line!());
@@ -257,6 +280,7 @@ impl State {
         })).await
     }
 
+    /// Disconnects a daemon from the server.
     pub fn disconnect_daemon(&self, addr: SocketAddr) -> Result<(), String> {
         #[cfg(feature = "lock_debug")]
         debug!("[{}:{}] awaiting DAEMON_CHANNEL_MAP", file!(), line!());
@@ -269,6 +293,8 @@ impl State {
         Ok(())
     }
 
+    /// Called when a daemon connects to the server to immediately send it all events that has been
+    /// listened to.
     pub async fn update_listens_for_daemon(&self, addr: &SocketAddr, uuid: &Uuid) -> Result<(), String> {
         #[cfg(feature = "lock_debug")]
         debug!("[{}:{}] awaiting DAEMON_CHANNEL_MAP", file!(), line!());
@@ -305,6 +331,7 @@ impl State {
         Ok(())
     }
 
+    /// Sends a handshake request to a web client.
     pub fn send_web_handshake_request(&self, addr: &SocketAddr, user_id: u32, key: Arc<Vec<u8>>) -> Result<(), String> {
         #[cfg(feature = "lock_debug")]
         debug!("[{}:{}] awaiting WEB_CHANNEL_MAP", file!(), line!());
@@ -343,6 +370,7 @@ impl State {
         Ok(())
     }
 
+    /// Authenticates a web client with the given challenge.
     pub fn authenticate_web(&self, addr: SocketAddr, challenge: String) -> Result<(), String> {
         #[cfg(feature = "lock_debug")]
         debug!("[{}:{}] awaiting WEB_CHANNEL_MAP", file!(), line!());
@@ -374,6 +402,7 @@ impl State {
         Ok(())
     }
 
+    /// Forwards a listen event to all daemons required from a web client.
     pub async fn send_listen(&self, addr: SocketAddr, events: Vec<ListenEvent>) -> Result<(), String> {
         let mut update_daemons = HashSet::new();
         let mut offline_daemons = HashSet::new();
@@ -458,6 +487,7 @@ impl State {
         Ok(())
     }
 
+    /// Adds a web client to the server.
     pub fn add_web(&self, addr: SocketAddr, tx: Tx) {
         #[cfg(feature = "lock_debug")]
         debug!("[{}:{}] awaiting WEB_CHANNEL_MAP", file!(), line!());
@@ -474,6 +504,8 @@ impl State {
         debug!("[{}:{}] dropped WEB_CHANNEL_MAP", file!(), line!());
     }
 
+    /// Removes a web client from the server. Should only be used in the `on_disconnect` method,
+    /// see `disconnect_web` for a more general use case.
     pub async fn remove_web(&self, addr: SocketAddr) -> Result<(), String> {
         let mut update_daemons = HashSet::new();
 
@@ -537,6 +569,7 @@ impl State {
         Ok(())
     }
 
+    /// Disconnects a web client from the server.
     pub fn disconnect_web(&self, addr: SocketAddr) -> Result<(), String> {
         #[cfg(feature = "lock_debug")]
         debug!("[{}:{}] awaiting WEB_CHANNEL_MAP", file!(), line!());

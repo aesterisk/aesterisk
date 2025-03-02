@@ -8,17 +8,24 @@ use tracing::{info, instrument};
 
 use crate::{config::CONFIG, db, encryption::DECRYPTER, server::Server, state::{DaemonKeyCache, State, Tx}};
 
+/// `DaemonHandshake` is a struct that contains the information required to send a handshake request
+/// to the daemon.
 pub struct DaemonHandshake {
     pub daemon_uuid: Uuid,
     pub encrypter: RsaesJweEncrypter,
     pub challenge: String,
 }
 
+/// `DaemonSocket` is a struct that contains the transmitting end of the `mpsc::unbounded` channel, to
+/// send messages to the daemon, as well as an optional `DaemonHandshake` (if the handshake request
+/// has been sent).
 pub struct DaemonSocket {
     pub tx: Tx,
     pub handshake: Option<DaemonHandshake>,
 }
 
+/// `DaemonServer` is a WebSocket server (implemented by the `Server` trait) that listens for daemon
+/// connections.
 pub struct DaemonServer {
     state: Arc<State>,
 }
@@ -28,6 +35,7 @@ struct PublicKeyQuery {
 }
 
 impl DaemonServer {
+    /// Creates a new `DaemonServer` instance, with the given `State`.
     pub fn new(state: Arc<State>) -> Self {
         Self {
             state

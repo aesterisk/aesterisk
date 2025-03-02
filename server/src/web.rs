@@ -7,10 +7,14 @@ use tracing::{info, instrument};
 
 use crate::{config::CONFIG, db, encryption::DECRYPTER, server::Server, state::{State, Tx, WebKeyCache}};
 
+/// WebServer is a WebSocket server (implemented by the `Server` trait) that listens for web
+/// (frontend) connections.
 pub struct WebServer {
     state: Arc<State>,
 }
 
+/// WebHandshake is a struct that contains the information required to send a handshake request to
+/// the web client.
 pub struct WebHandshake {
     #[allow(dead_code)] // TODO: this should be used to authenticate which user can access which
                         //       daemons
@@ -19,6 +23,9 @@ pub struct WebHandshake {
     pub challenge: String,
 }
 
+/// WebSocket is a struct that contains the transmitting end of the `mpsc::unbounded` channel, to
+/// send messages to the web client, as well as an optional `WebHandshake` (if the handshake
+/// request has been sent).
 pub struct WebSocket {
     pub tx: Tx,
     pub handshake: Option<WebHandshake>,
@@ -29,6 +36,7 @@ struct PublicKeyQuery {
 }
 
 impl WebServer {
+    /// Creates a new `WebServer` instance, with the given `State`.
     pub fn new(state: Arc<State>) -> Self {
         Self {
             state
