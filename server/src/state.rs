@@ -550,3 +550,109 @@ impl State {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::{pin::Pin, str::FromStr};
+
+    use futures_util::StreamExt;
+    use josekit::jwk;
+    use mpsc::unbounded;
+    use packet::ID;
+
+    use super::*;
+
+    #[tokio::test]
+    async fn encryption_decryption() {
+        let state = Arc::new(State::new());
+
+        let web_addr_1 = SocketAddr::from(([127, 0, 0, 1], 30001));
+        let (web_tx_1, mut web_rx_1) = unbounded();
+
+        let web_keys_1 = jwk::alg::rsa::RsaKeyPair::generate(2048).expect("could not create keys");
+        let web_public_1 = Arc::new(web_keys_1.to_pem_public_key());
+
+        let web_private_1 = Arc::new(web_keys_1.to_pem_private_key());
+        let decrypter = josekit::jwe::RSA_OAEP.decrypter_from_pem(web_private_1.as_ref()).expect("could not create decrypter");
+
+        state.add_web(web_addr_1, web_tx_1);
+        state.send_web_handshake_request(&web_addr_1, 1, web_public_1).expect("could not send web handshake request");
+
+        let handshake_request = web_rx_1.next().await.expect("could not get message");
+        let message = handshake_request.into_text().expect("message is not text");
+
+        let packet = encryption::decrypt_packet(&message, &decrypter, "aesterisk/server", None::<fn() -> Pin<Box<dyn Future<Output = Result<(), String>> + Send>>>).await.expect("could not decrypt packet");
+
+        assert_eq!(packet.id, ID::SWHandshakeRequest);
+    }
+
+    #[tokio::test]
+    async fn web_authentication() {
+        let state = Arc::new(State::new());
+
+        let web_addr_1 = SocketAddr::from(([127, 0, 0, 1], 30001));
+        let (web_tx_1, mut web_rx_1) = unbounded();
+
+        let web_keys_1 = jwk::alg::rsa::RsaKeyPair::generate(2048).expect("could not create keys");
+        let web_public_1 = Arc::new(web_keys_1.to_pem_public_key());
+
+        let web_private_1 = Arc::new(web_keys_1.to_pem_private_key());
+        let decrypter = josekit::jwe::RSA_OAEP.decrypter_from_pem(web_private_1.as_ref()).expect("could not create decrypter");
+
+        let web_user_id_1 = 1234;
+
+        state.add_web(web_addr_1, web_tx_1);
+        state.send_web_handshake_request(&web_addr_1, web_user_id_1, web_public_1).expect("could not send web handshake request");
+
+        let handshake_request = web_rx_1.next().await.expect("could not get message");
+        let message = handshake_request.into_text().expect("message is not text");
+
+        let packet = encryption::decrypt_packet(&message, &decrypter, "aesterisk/server", None::<fn() -> Pin<Box<dyn Future<Output = Result<(), String>> + Send>>>).await.expect("could not decrypt packet");
+
+        assert_eq!(packet.id, ID::SWHandshakeRequest);
+
+        let handshake_request = SWHandshakeRequestPacket::parse(packet).expect("could not parse packet");
+
+        state.authenticate_web(web_addr_1, handshake_request.challenge).expect("could not authenticate");
+
+        let client = state.web_channel_map.get(&web_addr_1);
+        assert!(client.is_some());
+        assert!(client.as_ref().unwrap().handshake.is_some());
+        assert!(client.unwrap().handshake.as_ref().unwrap().user_id == web_user_id_1);
+    }
+
+    #[tokio::test]
+    async fn daemon_authentication() {
+        let state = Arc::new(State::new());
+
+        let daemon_addr_1 = SocketAddr::from(([127, 0, 0, 1], 30001));
+        let (daemon_tx_1, mut daemon_rx_1) = unbounded();
+
+        let daemon_keys_1 = jwk::alg::rsa::RsaKeyPair::generate(2048).expect("could not create keys");
+        let daemon_public_1 = Arc::new(daemon_keys_1.to_pem_public_key());
+
+        let daemon_private_1 = Arc::new(daemon_keys_1.to_pem_private_key());
+        let decrypter = josekit::jwe::RSA_OAEP.decrypter_from_pem(daemon_private_1.as_ref()).expect("could not create decrypter");
+
+        let daemon_uuid_1 = Uuid::from_str("DAE11071-0000-4000-0000-000000000000").expect("could not create uuid");
+
+        state.add_daemon(daemon_addr_1, daemon_tx_1);
+        state.send_daemon_handshake_request(daemon_addr_1, daemon_uuid_1, daemon_public_1).await.expect("could not send daemon handshake request");
+
+        let handshake_request = daemon_rx_1.next().await.expect("could not get message");
+        let message = handshake_request.into_text().expect("message is not text");
+
+        let packet = encryption::decrypt_packet(&message, &decrypter, "aesterisk/server", None::<fn() -> Pin<Box<dyn Future<Output = Result<(), String>> + Send>>>).await.expect("could not decrypt packet");
+
+        assert_eq!(packet.id, ID::SDHandshakeRequest);
+
+        let handshake_request = SDHandshakeRequestPacket::parse(packet).expect("could not parse packet");
+
+        state.authenticate_daemon(daemon_addr_1, handshake_request.challenge).expect("could not authenticate");
+
+        let client = state.daemon_channel_map.get(&daemon_addr_1);
+        assert!(client.is_some());
+        assert!(client.as_ref().unwrap().handshake.is_some());
+        assert!(client.unwrap().handshake.as_ref().unwrap().daemon_uuid == daemon_uuid_1);
+    }
+}
