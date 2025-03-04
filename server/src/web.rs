@@ -51,7 +51,7 @@ impl WebServer {
             }
         }
 
-        let res = sqlx::query_as!(PublicKeyQuery, "SELECT user_public_key FROM aesterisk.users WHERE user_id = $1", user_id as i32).fetch_one(db::get()).await.map_err(|_| format!("User with ID {} does not exist", user_id))?;
+        let res = sqlx::query_as!(PublicKeyQuery, "SELECT user_public_key FROM aesterisk.users WHERE user_id = $1", user_id as i32).fetch_one(db::get()?).await.map_err(|_| format!("User with ID {} does not exist", user_id))?;
 
         let cache: &WebKeyCache = self.state.web_key_cache.borrow();
         cache.insert(user_id, Arc::new(res.user_public_key.into_bytes()));
@@ -115,13 +115,13 @@ impl Server for WebServer {
     async fn on_packet(&self, packet: Packet, addr: SocketAddr) -> Result<(), String> {
         match packet.id {
             ID::WSAuth => {
-                self.handle_auth(WSAuthPacket::parse(packet).expect("WSAuthPacket should be Some"), addr).await
+                self.handle_auth(WSAuthPacket::parse(packet).ok_or("Could not parse WSAuthPacket")?, addr).await
             },
             ID::WSHandshakeResponse => {
-                self.handle_handshake_response(WSHandshakeResponsePacket::parse(packet).expect("WSHandshakeResponsePacket should be Some"), addr).await
+                self.handle_handshake_response(WSHandshakeResponsePacket::parse(packet).ok_or("Could not parse WSHandshakeResponsePacket")?, addr).await
             }
             ID::WSListen => {
-                self.handle_listen(WSListenPacket::parse(packet).expect("WSListenPacket should be Some"), addr).await
+                self.handle_listen(WSListenPacket::parse(packet).ok_or("Could not parse WSListenPacket")?, addr).await
             },
             _ => {
                 Err(format!("Should not receive [SD]* packet: {:?}", packet.id))

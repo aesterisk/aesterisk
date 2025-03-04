@@ -1,8 +1,8 @@
-use std::sync::Arc;
+use std::{process, sync::Arc};
 
 use futures_util::join;
 use state::State;
-use tracing::{info, warn};
+use tracing::{info, warn, error};
 
 use daemon::DaemonServer;
 use web::WebServer;
@@ -24,7 +24,10 @@ async fn main() {
 
     info!("Starting Aesterisk Server v{}", env!("CARGO_PKG_VERSION"));
 
-    db::init().await.expect("failed to initialize database connection");
+    if let Err(e) = db::init().await {
+        error!("Failed to initialize database connection: {}", e);
+        process::exit(1);
+    }
 
     let state = Arc::new(State::new());
 
@@ -38,8 +41,14 @@ async fn main() {
     let web_server_handle = tokio::spawn(web_server.start());
 
     let (web_res, daemon_res) = join!(web_server_handle, daemon_server_handle);
-    web_res.expect("failed to join web server handle");
-    daemon_res.expect("failed to join daemon server handle");
+
+    if web_res.is_err() {
+        warn!("Failed to join web server handle");
+    }
+
+    if daemon_res.is_err() {
+        warn!("Failed to join daemon server handle");
+    }
 
     warn!("Internal servers are down, exiting...");
 

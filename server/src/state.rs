@@ -129,10 +129,10 @@ impl State {
         let mut challenge_bytes = [0; 256];
         rand_bytes(&mut challenge_bytes).map_err(|_| "Could not generate challenge")?;
 
-        let challenge = challenge_bytes.iter().fold(String::new(), |mut s, byte| {
-            write!(s, "{:02X}", byte).expect("could not write byte");
-            s
-        });
+        let challenge = challenge_bytes.iter().try_fold::<_, _, Result<String, String>>(String::new(), |mut s, byte| {
+            write!(s, "{:02X}", byte).map_err(|_| "could not write byte")?;
+            Ok(s)
+        })?;
 
         #[cfg(feature = "lock_debug")]
         debug!("[{}:{}] awaiting DAEMON_CHANNEL_MAP", file!(), line!());
@@ -342,10 +342,10 @@ impl State {
 
         let mut challenge_bytes = [0; 256];
         rand_bytes(&mut challenge_bytes).map_err(|_| "Could not generate challenge")?;
-        let challenge = challenge_bytes.iter().fold(String::new(), |mut s, byte| {
-            write!(s, "{:02X}", byte).expect("could not write byte");
-            s
-        });
+        let challenge = challenge_bytes.iter().try_fold::<_, _, Result<String, String>>(String::new(), |mut s, byte| {
+            write!(s, "{:02X}", byte).map_err(|_| "could not write byte")?;
+            Ok(s)
+        })?;
 
         client.handshake = Some(WebHandshake {
             user_id,

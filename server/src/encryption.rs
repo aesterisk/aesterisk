@@ -1,6 +1,6 @@
 use std::time::{Duration, SystemTime};
 
-use josekit::{jwe::{alg::rsaes::{RsaesJweDecrypter, RsaesJweEncrypter}, JweHeader}, jwk::alg::rsa::RsaKeyPair, jwt::{self, JwtPayload, JwtPayloadValidator}};
+use josekit::{jwe::{alg::rsaes::{RsaesJweDecrypter, RsaesJweEncrypter}, JweHeader}, jwk::alg::rsa::RsaKeyPair, jwt::{self, JwtPayload, JwtPayloadValidator}, Map, Value};
 use lazy_static::lazy_static;
 
 use packet::Packet;
@@ -26,17 +26,17 @@ pub fn encrypt_packet(packet: Packet, encrypter: &RsaesJweEncrypter) -> Result<S
     header.set_content_encryption("A256GCM");
 
     let mut payload = JwtPayload::new();
-    payload.set_claim("p", Some(serde_json::to_value(packet).map_err(|_| "packet should be serializable")?)).map_err(|_| "should set claim correctly")?;
+    payload.set_claim("p", Some(serde_json::to_value(packet).map_err(|_| "Packet should be serializable")?)).map_err(|_| "Could not set payload claim")?;
     payload.set_issuer("aesterisk/server");
     payload.set_issued_at(&SystemTime::now());
-    payload.set_expires_at(&SystemTime::now().checked_add(Duration::from_secs(60)).ok_or("duration overflow")?);
+    payload.set_expires_at(&SystemTime::now().checked_add(Duration::from_secs(60)).ok_or("Duration overflow")?);
 
-    Ok(jwt::encode_with_encrypter(&payload, &header, encrypter).map_err(|_| "could not encrypt token")?)
+    Ok(jwt::encode_with_encrypter(&payload, &header, encrypter).map_err(|_| "Could not encrypt packet")?)
 }
 
 /// Decrypt a packet using the given decrypter
 pub async fn decrypt_packet(msg: &str, decrypter: &RsaesJweDecrypter, issuer: &str, on_err: Option<impl AsyncFnOnce() -> Result<(), String>>) -> Result<Packet, String> {
-    let (payload, _) = jwt::decode_with_decrypter(msg, decrypter).expect("should decrypt");
+    let (payload, _) = jwt::decode_with_decrypter(msg, decrypter).map_err(|_| "Could not decrypt message")?;
 
     let mut validator = JwtPayloadValidator::new();
     validator.set_issuer(issuer);
@@ -55,8 +55,8 @@ pub async fn decrypt_packet(msg: &str, decrypter: &RsaesJweDecrypter, issuer: &s
         }
     }
 
-    // TODO: maybe don't clone hehe
-    let try_packet = Packet::from_value(payload.claim("p").expect("should have .p").clone());
+    let payload: Map<String, Value> = payload.into();
+    let try_packet = Packet::from_value(payload.into_iter().find_map(|(k, v)| if k == "p" { Some(v) } else { None }).ok_or("No payload found in packet")?);
 
     try_packet.ok_or(format!("Could not parse packet: \"{}\"", msg))
 }

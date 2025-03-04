@@ -35,7 +35,7 @@ pub trait Server: Send + Sync + 'static {
     /// Called when a packet is received
     async fn on_packet(&self, packet: Packet, addr: SocketAddr) -> Result<(), String>;
 
-    /// Start the serer.
+    /// Start the server.
     async fn start(self: Arc<Self>) {
         let tracing_name = self.as_ref().get_tracing_name();
         async move {

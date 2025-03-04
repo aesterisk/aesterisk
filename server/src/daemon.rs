@@ -50,7 +50,7 @@ impl DaemonServer {
             }
         }
 
-        let res = sqlx::query_as!(PublicKeyQuery, "SELECT node_public_key FROM aesterisk.nodes WHERE node_uuid = $1", daemon_uuid).fetch_one(db::get()).await.map_err(|_| format!("Node with UUID {} does not exist", &daemon_uuid))?;
+        let res = sqlx::query_as!(PublicKeyQuery, "SELECT node_public_key FROM aesterisk.nodes WHERE node_uuid = $1", daemon_uuid).fetch_one(db::get()?).await.map_err(|_| format!("Node with UUID {} does not exist", &daemon_uuid))?;
 
         let cache: &DaemonKeyCache = self.state.daemon_key_cache.borrow();
         cache.insert(*daemon_uuid, Arc::new(res.node_public_key.into_bytes()));
@@ -115,13 +115,13 @@ impl Server for DaemonServer {
     async fn on_packet(&self, packet: Packet, addr: SocketAddr) -> Result<(), String> {
         match packet.id {
             ID::DSAuth => {
-                self.handle_auth(DSAuthPacket::parse(packet).expect("DSAuthPacket should be Some"), addr).await
+                self.handle_auth(DSAuthPacket::parse(packet).ok_or("Could not parse DSAuthPacket")?, addr).await
             },
             ID::DSHandshakeResponse => {
-                self.handle_handshake_response(DSHandshakeResponsePacket::parse(packet).expect("DSHandshakeResponsePacket should be Some"), addr).await
+                self.handle_handshake_response(DSHandshakeResponsePacket::parse(packet).ok_or("Could not parse DSHandshakeResponsePacket")?, addr).await
             }
             ID::DSEvent => {
-                self.handle_event(DSEventPacket::parse(packet).expect("DSEventPacket should be Some"), addr).await
+                self.handle_event(DSEventPacket::parse(packet).ok_or("Could not parse DSEventPacket")?, addr).await
             },
             _ => {
                 Err(format!("Should not receive [SW]* packet: {:?}", packet.id))
