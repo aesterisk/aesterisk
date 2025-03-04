@@ -11,6 +11,7 @@ tokio_debug = ["console-subscriber"]
 default = []
 
 [dependencies]
+async-trait = "0.1.86"
 console-subscriber = { version = "0.4.1", optional = true }
 dashmap = "6.1.0"
 dotenvy = { git = "https://github.com/allan2/dotenvy", version = "0.15.7", features = ["macros"] }
@@ -29,4 +30,5 @@ tokio-tungstenite.workspace = true
 toml.workspace = true
 tracing.workspace = true
 tracing-appender.workspace = true
+tracing-futures = { version = "0.2.5", features = ["tokio"] }
 tracing-subscriber.workspace = true

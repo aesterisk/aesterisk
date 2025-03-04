@@ -1,97 +1,59 @@
-use std::{collections::{HashMap, HashSet}, env, io, net::SocketAddr, sync::Arc};
+use std::{process, sync::Arc};
 
-use daemon::DaemonSocket;
-use dashmap::DashMap;
-use futures_channel::mpsc;
 use futures_util::join;
-use josekit::jwk::alg::rsa::RsaKeyPair;
-use lazy_static::lazy_static;
-use packet::events::EventType;
-use sqlx::{postgres::PgPoolOptions, types::Uuid};
-use tokio_tungstenite::tungstenite::Message;
-use tracing::{info, warn, Level};
-use tracing_appender::rolling::Rotation;
-use tracing_subscriber::{fmt::writer::MakeWriterExt, layer::SubscriberExt, util::SubscriberInitExt};
-use web::WebSocket;
+use state::State;
+use tracing::{info, warn, error};
+
+use daemon::DaemonServer;
+use web::WebServer;
+use server::Server;
 
 mod config;
 mod daemon;
+mod db;
+mod encryption;
+mod logging;
+mod server;
+mod state;
 mod web;
-
-type Tx = mpsc::UnboundedSender<Message>;
-type Rx = mpsc::UnboundedReceiver<Message>;
-
-type WebChannelMap = Arc<DashMap<SocketAddr, WebSocket>>;
-type WebKeyCache = Arc<DashMap<u32, Arc<Vec<u8>>>>;
-
-type DaemonChannelMap = Arc<DashMap<SocketAddr, DaemonSocket>>;
-type DaemonKeyCache = Arc<DashMap<Uuid, Arc<Vec<u8>>>>;
-
-type DaemonListenMap = Arc<DashMap<Uuid, HashMap<EventType, HashSet<SocketAddr>>>>;
-type WebListenMap = Arc<DashMap<SocketAddr, HashMap<EventType, HashSet<Uuid>>>>;
-type DaemonIDMap = Arc<DashMap<Uuid, SocketAddr>>;
-
-lazy_static! {
-    static ref CONFIG: config::Config = config::load_or_create("config.toml");
-    static ref PRIVATE_KEY: josekit::jwk::Jwk = read_key(&CONFIG.server.private_key);
-    static ref DECRYPTER: josekit::jwe::alg::rsaes::RsaesJweDecrypter = josekit::jwe::RSA_OAEP.decrypter_from_jwk(&PRIVATE_KEY).expect("decrypter should create successfully");
-
-    static ref WEB_CHANNEL_MAP: WebChannelMap = Arc::new(DashMap::new());
-    static ref WEB_KEY_CACHE: WebKeyCache = Arc::new(DashMap::new());
-
-    static ref DAEMON_CHANNEL_MAP: DaemonChannelMap = Arc::new(DashMap::new());
-    static ref DAEMON_KEY_CACHE: DaemonKeyCache = Arc::new(DashMap::new());
-
-    static ref DAEMON_LISTEN_MAP: DaemonListenMap = Arc::new(DashMap::new());
-    static ref WEB_LISTEN_MAP: WebListenMap = Arc::new(DashMap::new());
-    static ref DAEMON_ID_MAP: DaemonIDMap = Arc::new(DashMap::new());
-}
-
-fn read_key(file: &str) -> josekit::jwk::Jwk {
-    let pem = std::fs::read_to_string(file).expect("failed to read private key file");
-    let key = RsaKeyPair::from_pem(pem).expect("failed to parse pem");
-    key.to_jwk_private_key()
-}
 
 #[dotenvy::load]
 #[tokio::main]
 async fn main() {
-    #[cfg(feature = "tokio_debug")]
-    let console_layer = console_subscriber::Builder::default().spawn();
-
-    let logs_rotation = tracing_appender::rolling::Builder::new().filename_suffix("server.aesterisk.log").rotation(Rotation::DAILY).build(&CONFIG.logging.folder).expect("could not initialize file logger");
-    let (logs_file, _logs_file_guard) = tracing_appender::non_blocking(logs_rotation);
-    let logs_file_layer = tracing_subscriber::fmt::layer().with_writer(logs_file.with_max_level(Level::DEBUG)).with_ansi(false);
-
-    let (logs_stdout, _logs_stdout_guard) = tracing_appender::non_blocking(io::stdout());
-    let (logs_stderr, _logs_stderr_guard) = tracing_appender::non_blocking(io::stderr());
-    let logs_stdout_layer = tracing_subscriber::fmt::layer().with_writer(logs_stderr.with_max_level(Level::WARN).or_else(logs_stdout.with_max_level(Level::DEBUG))).with_ansi(true);
-
-    #[cfg(feature = "tokio_debug")]
-    tracing_subscriber::registry()
-        .with(console_layer)
-        .with(logs_file_layer)
-        .with(logs_stdout_layer)
-        .init();
-
-    #[cfg(not(feature = "tokio_debug"))]
-    tracing_subscriber::registry()
-        .with(logs_file_layer)
-        .with(logs_stdout_layer)
-        .init();
+    logging::init();
 
     info!("Starting Aesterisk Server v{}", env!("CARGO_PKG_VERSION"));
 
-    let pool = PgPoolOptions::new().max_connections(5).connect(&env::var("DATABASE_URL").expect("environment variable DATABASE_URL needs to be set")).await.expect("could not connect to database");
+    if let Err(e) = db::init().await {
+        error!("Failed to initialize database connection: {}", e);
+        process::exit(1);
+    }
+
+    let state = Arc::new(State::new());
+
+    let daemon_server = Arc::new(DaemonServer::new(Arc::clone(&state)));
+    let web_server = Arc::new(WebServer::new(Arc::clone(&state)));
 
     info!("Starting Daemon Server...");
-    let daemon_server_handle = tokio::spawn(daemon::start(pool.clone()));
+    let daemon_server_handle = tokio::spawn(daemon_server.start());
+
     info!("Starting Web Server...");
-    let web_server_handle = tokio::spawn(web::start(pool.clone()));
+    let web_server_handle = tokio::spawn(web_server.start());
 
     let (web_res, daemon_res) = join!(web_server_handle, daemon_server_handle);
-    web_res.expect("failed to join handle");
-    daemon_res.expect("failed to join handle");
 
-    warn!("Web and Daemon Servers are down, exiting...");
+    if web_res.is_err() {
+        warn!("Failed to join web server handle");
+    }
+
+    if daemon_res.is_err() {
+        warn!("Failed to join daemon server handle");
+    }
+
+    warn!("Internal servers are down, exiting...");
+
+    // TODO: as this is the main server, and exit should probably immediately notify us, but as
+    //       this is a prototype, we'll just let it exit for now. as something might have failed,
+    //       we can't rely on the notification being sent, so we'll need to monitor the server
+    //       status from the outside as well.
 }
