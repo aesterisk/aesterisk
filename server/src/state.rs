@@ -164,7 +164,7 @@ impl State {
         let mut challenge_bytes = [0; 256];
         rand_bytes(&mut challenge_bytes).map_err(|_| "Could not generate challenge")?;
 
-        let challenge = challenge_bytes.iter().try_fold::<_, _, Result<String, String>>(String::new(), |mut s, byte| {
+        let challenge = challenge_bytes.iter().try_fold::<_, _, Result<String, String>>(String::default(), |mut s, byte| {
             write!(s, "{:02X}", byte).map_err(|_| "could not write byte")?;
             Ok(s)
         })?;
@@ -377,7 +377,7 @@ impl State {
 
         let mut challenge_bytes = [0; 256];
         rand_bytes(&mut challenge_bytes).map_err(|_| "Could not generate challenge")?;
-        let challenge = challenge_bytes.iter().try_fold::<_, _, Result<String, String>>(String::new(), |mut s, byte| {
+        let challenge = challenge_bytes.iter().try_fold::<_, _, Result<String, String>>(String::default(), |mut s, byte| {
             write!(s, "{:02X}", byte).map_err(|_| "could not write byte")?;
             Ok(s)
         })?;
