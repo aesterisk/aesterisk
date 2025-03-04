@@ -75,9 +75,11 @@ pub type DaemonIDMap = Arc<DashMap<Uuid, SocketAddr>>;
 /// `State` is a struct containing all data that is required by `daemon` and `web` servers.
 pub struct State {
     web_channel_map: WebChannelMap,
+    /// `WebKeyCache` is a `DashMap` that maps a user id (`u32`) to an encryption key (`Arc<Vec<u8>>`).
     pub web_key_cache: WebKeyCache,
 
     daemon_channel_map: DaemonChannelMap,
+    /// `DaemonKeyCache` is a `DashMap` that maps a `Uuid` to an encryption key (`Arc<Vec<u8>>`).
     pub daemon_key_cache: DaemonKeyCache,
 
     daemon_listen_map: DaemonListenMap,

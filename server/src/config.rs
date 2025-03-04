@@ -4,8 +4,8 @@ lazy_static! {
     pub static ref CONFIG: Config = load_or_create("config.toml");
 }
 
-/// The `Config` struct represents the configuration of the server.
 #[derive(Debug, serde::Serialize, serde::Deserialize, Default)]
+/// The `Config` struct represents the configuration of the server.
 pub struct Config {
     #[serde(default)]
     pub server: Server,
@@ -15,8 +15,8 @@ pub struct Config {
     pub logging: Logging,
 }
 
-/// The `Server` struct represents the server configuration.
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
+/// The `Server` struct represents the server configuration.
 pub struct Server {
     pub web_url: String,
     pub private_key: String,
@@ -31,8 +31,8 @@ impl Default for Server {
     }
 }
 
-/// The `Sockets` struct represents the socket configuration.
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
+/// The `Sockets` struct represents the socket configuration.
 pub struct Sockets {
     pub web: String,
     pub daemon: String,
@@ -47,8 +47,8 @@ impl Default for Sockets {
     }
 }
 
-/// The `Logging` struct represents the logging configuration.
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
+/// The `Logging` struct represents the logging configuration.
 pub struct Logging {
     pub folder: String,
 }

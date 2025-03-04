@@ -10,6 +10,7 @@ static FILE_GUARD: OnceLock<WorkerGuard> = OnceLock::new();
 static STDOUT_GUARD: OnceLock<WorkerGuard> = OnceLock::new();
 static STDERR_GUARD: OnceLock<WorkerGuard> = OnceLock::new();
 
+/// Initialize the logging system.
 pub fn init() {
     #[cfg(feature = "tokio_debug")]
     let console_layer = console_subscriber::Builder::default().spawn();
