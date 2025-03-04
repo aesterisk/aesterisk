@@ -19,6 +19,21 @@ mod web;
 
 #[dotenvy::load]
 #[tokio::main]
+/// Asynchronous entry point for the Aesterisk Server application.
+/// 
+/// This function initializes logging, establishes a database connection,
+/// and sets up a shared application state. It then concurrently starts the
+/// Daemon and Web servers as asynchronous tasks and awaits their completion.
+/// Panics are triggered if the database initialization fails or if either
+/// server task does not join successfully.
+/// 
+/// # Examples
+/// 
+/// To start the Aesterisk Server, compile and run the binary:
+/// 
+/// ```bash
+/// cargo run
+/// ```
 async fn main() {
     logging::init();
 

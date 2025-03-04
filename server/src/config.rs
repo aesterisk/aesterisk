@@ -65,14 +65,50 @@ fn save(config: &Config, file: &str) {
     std::fs::write(file, toml::to_string_pretty(&config).expect("failed to serialize default config")).expect("could not write config file");
 }
 
+/// Attempts to load a configuration from a TOML file.
+///
+/// Reads the file at the provided path and tries to deserialize its contents into a `Config` instance.
+/// Returns `None` if the file cannot be read or its contents fail to parse.
+///
+/// # Arguments
+///
+/// * `file` - The path to the TOML configuration file.
+///
+/// # Examples
+///
+/// ```
+/// // Assuming "config.toml" exists and contains valid TOML for a `Config`.
+/// if let Some(config) = load("config.toml") {
+///     println!("Configuration loaded successfully.");
+/// } else {
+///     eprintln!("Failed to load configuration.");
+/// }
+/// ```
 fn load(file: &str) -> Option<Config> {
     let contents = std::fs::read_to_string(file).ok()?;
     toml::from_str(&contents).ok()
 }
 
 /// Load the configuration from the given file, or create the file with the default configuration if
-/// it does not exist.
-pub fn load_or_create(file: &str) -> Config {
+/// Loads a configuration from the given file or creates a default configuration if loading fails.
+/// 
+/// This function attempts to load a configuration from the specified file path using the `load` function.
+/// If loading is unsuccessful, it falls back to a default configuration. In both cases, the configuration is
+/// saved back to the file before being returned.
+///
+/// # Arguments
+///
+/// * `file` - A string slice that holds the path to the TOML configuration file.
+///
+/// # Examples
+///
+/// ```
+/// use your_crate::config::load_or_create;
+///
+/// let config = load_or_create("config.toml");
+/// // If the configuration file is missing or invalid, a default configuration is created and saved.
+/// assert!(!config.server.web_url.is_empty());
+/// ```pub fn load_or_create(file: &str) -> Config {
     let config = load(file).unwrap_or_default();
     save(&config, file);
     config

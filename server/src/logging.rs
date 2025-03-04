@@ -10,6 +10,28 @@ static FILE_GUARD: OnceLock<WorkerGuard> = OnceLock::new();
 static STDOUT_GUARD: OnceLock<WorkerGuard> = OnceLock::new();
 static STDERR_GUARD: OnceLock<WorkerGuard> = OnceLock::new();
 
+/// Initializes the logging framework for the application.
+///
+/// Configures a rolling file logger that rotates daily and writes logs with the suffix
+/// "server.aesterisk.log" to the directory specified in the global configuration. This function
+/// sets up non-blocking loggers for file output, standard output (logging at DEBUG level), and
+/// standard error (logging at WARN level). When compiled with the `tokio_debug` feature, a
+/// console subscriber is additionally initialized for enhanced debugging support.
+///
+/// # Panics
+///
+/// Panics if any of the logging guards have already been set, ensuring that the logging subsystem
+/// is initialized only once.
+///
+/// # Examples
+///
+/// ```rust
+/// // Initialize the logging framework.
+/// my_crate::logging::init();
+///
+/// // Use tracing macros to log messages.
+/// tracing::info!("Application logging initialized successfully.");
+/// ```
 pub fn init() {
     #[cfg(feature = "tokio_debug")]
     let console_layer = console_subscriber::Builder::default().spawn();

@@ -51,8 +51,20 @@ pub struct State {
 }
 
 impl State {
-    /// Creates a new `State` instance.
-    pub fn new() -> Self {
+    /// Creates a new `State` instance with all internal mappings initialized.
+    ///
+    /// This function sets up empty concurrent maps for managing communication channels,
+    /// encryption keys, and event subscriptions between web clients and daemon servers.
+    /// Use it to obtain a clean state for asynchronous communication management.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use server::state::State;
+    ///
+    /// let state = State::new();
+    /// // The state is now ready for use with empty mappings.
+    /// ```    pub fn new() -> Self {
         Self {
             web_channel_map: Arc::new(DashMap::new()),
             web_key_cache: Arc::new(DashMap::new()),
@@ -64,8 +76,45 @@ impl State {
         }
     }
 
-    /// Sends an event from the server to the web clients listening.
-    pub async fn send_event_from_server(&self, uuid: &Uuid, event: EventData) -> Result<(), String> {
+    /// Sends an event from the server to all web clients subscribed to the event's type.
+    ///
+    /// This method retrieves the set of web clients that are listening for the event associated with the given daemon UUID,
+    /// encrypts the event packet using each client's handshake encryption key, and sends it over their communication channel.
+    /// It returns an error if the daemon is not found in the listening map, if any client information (such as its channel or
+    /// handshake details) is missing, or if sending the packet fails.
+    ///
+    /// # Errors
+    ///
+    /// Returns an `Err(String)` if:
+    /// - The daemon associated with the provided UUID is not found in the daemon listen map.
+    /// - A subscribed web client's channel is missing from the web channel map.
+    /// - The client's handshake information is unavailable.
+    /// - Sending the encrypted message to a client fails.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use uuid::Uuid;
+    /// // Assume `State` and `EventData` are imported from the relevant module.
+    ///
+    /// # use server::state::State;
+    /// # use server::event::EventData;
+    /// # async fn run_example() -> Result<(), String> {
+    /// // Initialize a new state instance.
+    /// let state = State::new();
+    ///
+    /// // Create a dummy daemon UUID.
+    /// let daemon_id = Uuid::new_v4();
+    ///
+    /// // Construct a dummy event. Replace with the actual event initializer as needed.
+    /// let event = EventData::default();
+    ///
+    /// // Send the event from the server to subscribed web clients.
+    /// state.send_event_from_server(&daemon_id, event).await?;
+    /// # Ok(())
+    /// # }
+    /// # tokio_test::block_on(run_example()).unwrap();
+    /// ```    pub async fn send_event_from_server(&self, uuid: &Uuid, event: EventData) -> Result<(), String> {
         #[cfg(feature = "lock_debug")]
         debug!("[{}:{}] awaiting DAEMON_LISTEN_MAP", file!(), line!());
         let map: &DaemonListenMap = self.daemon_listen_map.borrow();
@@ -109,8 +158,42 @@ impl State {
         Ok(())
     }
 
-    /// Sends an event from the daemon to the server.
-    pub async fn send_event_from_daemon(&self, addr: &SocketAddr, event: EventData) -> Result<(), String> {
+    /// Sends an event from a daemon to the server.
+    ///
+    /// This asynchronous function retrieves the daemon's unique identifier from the internal
+    /// channel map using its network address. If the daemon is registered and has initiated
+    /// a handshake for authentication, the function forwards the specified event to the server's
+    /// event handling mechanism, which dispatches it to the appropriate web clients.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - The daemon address is not found in the channel map.
+    /// - The daemon's handshake data is missing, indicating that authentication was not requested.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # #[tokio::main]
+    /// # async fn main() {
+    /// use std::net::SocketAddr;
+    /// use your_crate::{State, EventData};
+    ///
+    /// // Initialize the server state.
+    /// let state = State::new();
+    ///
+    /// // Define the daemon's address (adjust as needed).
+    /// let daemon_addr: SocketAddr = "127.0.0.1:8080".parse().unwrap();
+    ///
+    /// // Create an event (initialize accordingly).
+    /// let event = EventData::new("example_event", vec![]);
+    ///
+    /// // Send the event from the daemon to the server.
+    /// if let Err(e) = state.send_event_from_daemon(&daemon_addr, event).await {
+    ///     eprintln!("Failed to send event: {}", e);
+    /// }
+    /// # }
+    /// ```    pub async fn send_event_from_daemon(&self, addr: &SocketAddr, event: EventData) -> Result<(), String> {
         #[cfg(feature = "lock_debug")]
         debug!("[{}:{}] awaiting DAEMON_CHANNEL_MAP", file!(), line!());
         let uuid = self.daemon_channel_map.get(addr).ok_or("Daemon not found in DaemonChannelMap")?.handshake.as_ref().ok_or("Client hasn't requested authentication")?.daemon_uuid;
@@ -124,8 +207,53 @@ impl State {
         self.send_event_from_server(&uuid, event).await
     }
 
-    /// Sends a handshake request to a daemon.
-    pub async fn send_daemon_handshake_request(&self, addr: SocketAddr, uuid: Uuid, key: Arc<Vec<u8>>) -> Result<(), String> {
+    /// Initiates a handshake with a daemon by generating a cryptographic challenge and sending an encrypted handshake request.
+    ///
+    /// This asynchronous function creates a 256-byte random challenge (formatted as an uppercase hexadecimal string) and assigns a handshake
+    /// session to the daemon identified by the given network address. It constructs an encrypter using RSA OAEP with the provided PEM key,
+    /// encrypts a handshake request packet containing the challenge, and transmits it over the daemon's communication channel.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - The cryptographic challenge cannot be generated.
+    /// - The daemon is not found in the channel map.
+    /// - The provided key is invalid.
+    /// - The daemon has not initiated an authentication request.
+    /// - Sending the encrypted handshake packet fails.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use std::sync::Arc;
+    /// use std::net::SocketAddr;
+    /// use uuid::Uuid;
+    /// use tokio::sync::mpsc;
+    /// // Replace `your_crate` with the actual crate name where `State` is defined.
+    /// use your_crate::state::State;
+    ///
+    /// #[tokio::test]
+    /// async fn test_send_daemon_handshake_request() {
+    ///     // Setup a new state and a dummy daemon entry.
+    ///     let state = State::new();
+    ///     let addr: SocketAddr = "127.0.0.1:8080".parse().unwrap();
+    ///     let uuid = Uuid::new_v4();
+    ///
+    ///     // Establish a dummy communication channel for the daemon.
+    ///     let (tx, _rx) = mpsc::unbounded_channel();
+    ///     state.add_daemon(addr, tx);
+    ///
+    ///     // Provide a valid PEM-encoded public key for testing purposes.
+    ///     let pem_key = br#"-----BEGIN PUBLIC KEY-----
+    /// MFwwDQYJKoZIhvcNAQEBBQADSwAwSAJBAMZ2kQN3zW5GYlBd7dP76gID+YxdiPjp
+    /// K5fjOEBp5QqOCB7LMMbG4F7QKlBtn4tF9Kd8QFZysjZwTsN1N+2kR+YCAwEAAQ==
+    /// -----END PUBLIC KEY-----"#.to_vec();
+    ///     let key = Arc::new(pem_key);
+    ///
+    ///     let result = state.send_daemon_handshake_request(addr, uuid, key).await;
+    ///     assert!(result.is_ok());
+    /// }
+    /// ```    pub async fn send_daemon_handshake_request(&self, addr: SocketAddr, uuid: Uuid, key: Arc<Vec<u8>>) -> Result<(), String> {
         let mut challenge_bytes = [0; 256];
         rand_bytes(&mut challenge_bytes).map_err(|_| "Could not generate challenge")?;
 
@@ -165,8 +293,35 @@ impl State {
         Ok(())
     }
 
-    /// Authenticates a daemon with the given challenge.
-    pub fn authenticate_daemon(&self, addr: SocketAddr, challenge: String) -> Result<(), String> {
+    /// Authenticates a daemon by validating its handshake challenge.
+    /// 
+    /// The function retrieves the daemon's handshake information from the channel map using its socket
+    /// address. It then checks if the provided challenge matches the one stored during the handshake.
+    /// On a successful match, an encrypted authentication response is sent back to the daemon. If there
+    /// are any pending event subscriptions for the daemon, those are forwarded as an encrypted listen
+    /// packet. Finally, the daemon is registered in the ID map for further communication.
+    /// 
+    /// # Errors
+    /// 
+    /// Returns an error if:
+    /// - The client corresponding to the given address is not found,
+    /// - No handshake was initiated for the client,
+    /// - The provided challenge does not match the expected value, or
+    /// - Sending a response packet fails.
+    /// 
+    /// # Examples
+    /// 
+    /// ```
+    /// use std::net::SocketAddr;
+    /// // Assume that State is properly set up and a daemon handshake has been initiated.
+    /// let state = State::new();
+    /// let addr: SocketAddr = "127.0.0.1:8080".parse().unwrap();
+    /// let challenge = "expected_challenge".to_string();
+    /// 
+    /// // Attempt to authenticate the daemon. On success, Ok(()) is returned.
+    /// state.authenticate_daemon(addr, challenge)
+    ///     .expect("Daemon authentication failed");
+    /// ```    pub fn authenticate_daemon(&self, addr: SocketAddr, challenge: String) -> Result<(), String> {
         #[cfg(feature = "lock_debug")]
         debug!("[{}:{}] awaiting DAEMON_CHANNEL_MAP", file!(), line!());
         let clients: &DaemonChannelMap = self.daemon_channel_map.borrow();
@@ -232,8 +387,35 @@ impl State {
         Ok(())
     }
 
-    /// Adds a daemon to the server.
-    pub fn add_daemon(&self, addr: SocketAddr, tx: Tx) {
+    /// Registers a daemon's communication channel with the server.
+    ///
+    /// This method adds a new daemon socket to the server's daemon channel map by associating
+    /// the daemon's network address with its message transmitter. The associated daemon socket
+    /// is initialized without any handshake information.
+    ///
+    /// # Arguments
+    ///
+    /// * `addr` - The network address of the daemon.
+    /// * `tx`   - The channel transmitter used to send messages to the daemon.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+    /// use tokio::sync::mpsc::unbounded_channel;
+    ///
+    /// // Create a new instance of the state.
+    /// let state = State::new();
+    ///
+    /// // Define a daemon address.
+    /// let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8080);
+    ///
+    /// // Create an unbounded channel for daemon communication.
+    /// let (tx, _rx) = unbounded_channel();
+    ///
+    /// // Register the daemon with the server.
+    /// state.add_daemon(addr, tx);
+    /// ```    pub fn add_daemon(&self, addr: SocketAddr, tx: Tx) {
         #[cfg(feature = "lock_debug")]
         debug!("[{}:{}] awaiting DAEMON_CHANNEL_MAP", file!(), line!());
         self.daemon_channel_map.insert(addr, DaemonSocket {
@@ -248,8 +430,35 @@ impl State {
     }
 
     /// Removes a daemon from the server. Should only be used in the `on_disconnect` method, see
-    /// `disconnect_daemon` for a more general use case.
-    pub async fn remove_daemon(&self, addr: SocketAddr) -> Result<(), String> {
+    /// Removes a daemon connection from the server state and notifies clients that the daemon is offline.
+    ///
+    /// This asynchronous function removes the daemon identified by its socket address from the server's connection maps.
+    /// It first retrieves the daemon’s UUID by verifying that the daemon has authenticated (via its handshake state),
+    /// then removes the connection from both the daemon channel map and the daemon ID map. Finally, it sends an event
+    /// to web clients to update the node status to offline.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the daemon is not found in the connection map or if it has not successfully authenticated.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::net::SocketAddr;
+    /// use tokio;
+    /// // Replace `your_crate` with the appropriate module path.
+    /// # use your_crate::State;
+    ///
+    /// #[tokio::main]
+    /// async fn main() {
+    ///     let state = State::new();
+    ///     let addr: SocketAddr = "127.0.0.1:8080".parse().unwrap();
+    ///
+    ///     // Removing a daemon that isn't registered yields an error.
+    ///     let result = state.remove_daemon(addr).await;
+    ///     assert!(result.is_err());
+    /// }
+    /// ```    pub async fn remove_daemon(&self, addr: SocketAddr) -> Result<(), String> {
         #[cfg(feature = "lock_debug")]
         debug!("[{}:{}] awaiting DAEMON_CHANNEL_MAP", file!(), line!());
         let uuid = self.daemon_channel_map.get(&addr).ok_or("Daemon not found in DaemonChannelMap")?.handshake.as_ref().ok_or("Daemon hasn't authenticated")?.daemon_uuid;
@@ -280,8 +489,30 @@ impl State {
         })).await
     }
 
-    /// Disconnects a daemon from the server.
-    pub fn disconnect_daemon(&self, addr: SocketAddr) -> Result<(), String> {
+    /// Disconnects a daemon from the server by closing its communication channel.
+    ///
+    /// The function attempts to locate the daemon using the provided address in the server's channel map and then closes its associated transmit channel.
+    /// If the daemon is not found, an error is returned.
+    ///
+    /// # Errors
+    ///
+    /// Returns an `Err` with a descriptive message if the daemon associated with the specified address is not found.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::net::SocketAddr;
+    /// // Assume `State` is properly initialized and `create_dummy_tx()` is a helper
+    /// // that creates a valid Tx instance for testing purposes.
+    /// let state = State::new();
+    /// let addr: SocketAddr = "127.0.0.1:8080".parse().unwrap();
+    ///
+    /// // Add a daemon connection with a dummy transmission channel.
+    /// state.add_daemon(addr, create_dummy_tx());
+    ///
+    /// // Disconnecting the daemon should succeed.
+    /// assert!(state.disconnect_daemon(addr).is_ok());
+    /// ```    pub fn disconnect_daemon(&self, addr: SocketAddr) -> Result<(), String> {
         #[cfg(feature = "lock_debug")]
         debug!("[{}:{}] awaiting DAEMON_CHANNEL_MAP", file!(), line!());
         self.daemon_channel_map.get(&addr).ok_or("Client not found in channel_map")?.tx.close_channel();
@@ -294,8 +525,41 @@ impl State {
     }
 
     /// Called when a daemon connects to the server to immediately send it all events that has been
-    /// listened to.
-    pub async fn update_listens_for_daemon(&self, addr: &SocketAddr, uuid: &Uuid) -> Result<(), String> {
+    /// Updates a daemon's event subscriptions by sending the current listen events as an encrypted packet.
+    ///
+    /// This asynchronous method retrieves the list of event types a daemon (identified by its UUID) is subscribed to
+    /// from the internal listen mapping. It then fetches the daemon's communication channel associated with the provided
+    /// socket address, constructs a packet containing these events, encrypts it using the daemon's handshake encryption,
+    /// and sends it over the channel.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - The daemon is not found in the daemon channel or listen maps.
+    /// - The daemon has not completed the required handshake for encryption.
+    /// - Sending the encrypted packet fails.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::net::SocketAddr;
+    /// use uuid::Uuid;
+    /// use tokio;
+    ///
+    /// // Assume a State instance with a configured daemon channel and listen map.
+    /// #[tokio::main]
+    /// async fn main() {
+    ///     let state = State::new();
+    ///     let addr: SocketAddr = "127.0.0.1:8080".parse().unwrap();
+    ///     let daemon_uuid = Uuid::new_v4(); // Example daemon UUID
+    ///
+    ///     // The daemon should be added to the state with a valid channel and handshake state prior to this call.
+    ///     match state.update_listens_for_daemon(&addr, &daemon_uuid).await {
+    ///         Ok(()) => println!("Daemon listen events updated successfully."),
+    ///         Err(e) => eprintln!("Failed to update daemon listens: {}", e),
+    ///     }
+    /// }
+    /// ```    pub async fn update_listens_for_daemon(&self, addr: &SocketAddr, uuid: &Uuid) -> Result<(), String> {
         #[cfg(feature = "lock_debug")]
         debug!("[{}:{}] awaiting DAEMON_CHANNEL_MAP", file!(), line!());
         let daemon_channel_map: &DaemonChannelMap = self.daemon_channel_map.borrow();
@@ -331,8 +595,41 @@ impl State {
         Ok(())
     }
 
-    /// Sends a handshake request to a web client.
-    pub fn send_web_handshake_request(&self, addr: &SocketAddr, user_id: u32, key: Arc<Vec<u8>>) -> Result<(), String> {
+    /// Sends a handshake request to a web client by generating a cryptographic challenge and transmitting an encrypted handshake packet.
+    ///
+    /// This method creates a random challenge, sets the handshake state for the targeted web client using the provided user identifier,
+    /// and encrypts the handshake request using RSA OAEP with the given PEM-encoded key. The handshake packet is then sent to the client,
+    /// which must respond with the challenge to complete authentication.
+    ///
+    /// # Arguments
+    ///
+    /// * `addr` - The socket address of the web client to which the handshake request is sent.
+    /// * `user_id` - The identifier for the web client initiating the handshake.
+    /// * `key` - An RSA public key (in PEM format) used to construct the encrypter for securing the handshake packet.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - The specified client is not found in the channel map.
+    /// - A cryptographic challenge could not be generated.
+    /// - The provided key is invalid for creating an encrypter.
+    /// - The handshake packet fails to send.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::sync::Arc;
+    /// use std::net::SocketAddr;
+    ///
+    /// // Assume `state` is an initialized instance of State with a registered web client at the given address.
+    /// let addr: SocketAddr = "127.0.0.1:8080".parse().unwrap();
+    /// let user_id = 42;
+    /// let key_data = b"-----BEGIN PUBLIC KEY-----\n...\n-----END PUBLIC KEY-----";
+    /// let key = Arc::new(key_data.to_vec());
+    ///
+    /// let result = state.send_web_handshake_request(&addr, user_id, key);
+    /// assert!(result.is_ok());
+    /// ```    pub fn send_web_handshake_request(&self, addr: &SocketAddr, user_id: u32, key: Arc<Vec<u8>>) -> Result<(), String> {
         #[cfg(feature = "lock_debug")]
         debug!("[{}:{}] awaiting WEB_CHANNEL_MAP", file!(), line!());
         let clients: &WebChannelMap = self.web_channel_map.borrow();
@@ -370,8 +667,40 @@ impl State {
         Ok(())
     }
 
-    /// Authenticates a web client with the given challenge.
-    pub fn authenticate_web(&self, addr: SocketAddr, challenge: String) -> Result<(), String> {
+    /// Authenticates a web client by verifying a provided challenge against its handshake request.
+    /// 
+    /// This method retrieves the client associated with the provided address and checks that the given
+    /// challenge string matches the one stored in the client's handshake state. If the challenges match,
+    /// it encrypts and sends an authentication response packet to the client using the handshake encrypter.
+    /// In case of a mismatch or any failure (e.g. client not found, missing handshake, or failure to send
+    /// the packet), the client's channel is closed and an error is returned.
+    /// 
+    /// # Errors
+    /// 
+    /// Returns an error if:
+    /// - The client is not found in the channel map.
+    /// - The client has not initiated an authentication handshake.
+    /// - The provided challenge does not match the expected challenge.
+    /// - There is a failure in sending the encrypted authentication response.
+    /// 
+    /// # Examples
+    /// 
+    /// ```
+    /// use std::net::SocketAddr;
+    /// use std::str::FromStr;
+    /// 
+    /// // Assume that state is an instance of State properly initialized and a client has requested handshake
+    /// // so that its handshake field contains the expected challenge and encrypter.
+    /// let state = State::new();
+    /// let addr = SocketAddr::from_str("127.0.0.1:8080").unwrap();
+    /// 
+    /// // In a typical setup, ensure the client at addr has an active handshake with challenge "expected_challenge".
+    /// // Authenticate the client with the matching challenge.
+    /// let result = state.authenticate_web(addr, "expected_challenge".to_string());
+    /// assert!(result.is_ok());
+    /// ```
+    /// 
+    /// Note: This method assumes that the handshake request has been received and stored for the client.    pub fn authenticate_web(&self, addr: SocketAddr, challenge: String) -> Result<(), String> {
         #[cfg(feature = "lock_debug")]
         debug!("[{}:{}] awaiting WEB_CHANNEL_MAP", file!(), line!());
         let clients: &WebChannelMap = self.web_channel_map.borrow();
@@ -402,8 +731,44 @@ impl State {
         Ok(())
     }
 
-    /// Forwards a listen event to all daemons required from a web client.
-    pub async fn send_listen(&self, addr: SocketAddr, events: Vec<ListenEvent>) -> Result<(), String> {
+    /// Forwards listen events from a web client to the appropriate daemons and updates subscription mappings.
+    /// 
+    /// This asynchronous function processes a list of listen events submitted by a web client, identified by its socket address.
+    /// For each event, it updates both the daemon and web listen maps: associating the client's address with the event on the daemon side,
+    /// and linking the event to the specified daemons on the web side. If a NodeStatus event is received and a daemon is not registered,
+    /// the daemon is marked offline and notified accordingly. Finally, for each daemon whose subscriptions were updated and is online,
+    /// the function refreshes its listen configuration.
+    /// 
+    /// Returns `Ok(())` on successful processing or an error message as a `String` if any operation fails.
+    /// 
+    /// # Examples
+    /// 
+    /// ```
+    /// use std::net::SocketAddr;
+    /// use uuid::Uuid;
+    /// use your_crate::{State, ListenEvent, EventType, NodeStatusEvent, EventData}; // adjust imports as needed
+    /// use tokio;
+    /// 
+    /// #[tokio::test]
+    /// async fn test_send_listen() {
+    ///     // Initialize the server state.
+    ///     let state = State::new();
+    ///     
+    ///     // Define a web client's socket address.
+    ///     let client_addr: SocketAddr = "127.0.0.1:8080".parse().unwrap();
+    ///     
+    ///     // Create a listen event for including a NodeStatus update from a daemon.
+    ///     let daemon_id = Uuid::new_v4();
+    ///     let listen_event = ListenEvent {
+    ///         event: EventType::NodeStatus,
+    ///         daemons: vec![daemon_id],
+    ///     };
+    ///     
+    ///     // Forward the listen event.
+    ///     let result = state.send_listen(client_addr, vec![listen_event]).await;
+    ///     assert!(result.is_ok());
+    /// }
+    /// ```    pub async fn send_listen(&self, addr: SocketAddr, events: Vec<ListenEvent>) -> Result<(), String> {
         let mut update_daemons = HashSet::new();
         let mut offline_daemons = HashSet::new();
 
@@ -487,8 +852,27 @@ impl State {
         Ok(())
     }
 
-    /// Adds a web client to the server.
-    pub fn add_web(&self, addr: SocketAddr, tx: Tx) {
+    /// Registers a new web client with the server.
+    ///
+    /// Inserts a new web client connection into the server's internal channel map, associating the client's network address with a WebSocket instance configured with the provided transmitter and an unset handshake state.
+    ///
+    /// # Arguments
+    ///
+    /// * `addr` - The network address of the web client.
+    /// * `tx` - The channel transmitter used to send messages to the web client.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::net::SocketAddr;
+    /// use server::state::State;
+    /// use tokio::sync::mpsc::unbounded_channel;
+    ///
+    /// let state = State::new();
+    /// let addr: SocketAddr = "127.0.0.1:8080".parse().unwrap();
+    /// let (tx, _rx) = unbounded_channel();
+    /// state.add_web(addr, tx);
+    /// ```    pub fn add_web(&self, addr: SocketAddr, tx: Tx) {
         #[cfg(feature = "lock_debug")]
         debug!("[{}:{}] awaiting WEB_CHANNEL_MAP", file!(), line!());
 
@@ -505,8 +889,39 @@ impl State {
     }
 
     /// Removes a web client from the server. Should only be used in the `on_disconnect` method,
-    /// see `disconnect_web` for a more general use case.
-    pub async fn remove_web(&self, addr: SocketAddr) -> Result<(), String> {
+    /// Removes a web client's connection from the server state and updates associated daemon event subscriptions.
+    ///
+    /// This asynchronous function removes the specified web client's channel and event subscriptions from
+    /// the internal maps. It also notifies all daemons associated with the web client's events to update
+    /// their own subscriptions accordingly.
+    ///
+    /// # Arguments
+    ///
+    /// * `addr` - The socket address of the web client to remove.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if a required daemon entry is missing in the daemon listen map or if updating
+    /// a daemon's subscriptions fails.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use server::state::State;
+    /// use std::net::SocketAddr;
+    ///
+    /// #[tokio::main]
+    /// async fn main() {
+    ///     let state = State::new();
+    ///     let web_addr: SocketAddr = "127.0.0.1:8080".parse().unwrap();
+    ///
+    ///     // Remove the web client and update subscriptions for associated daemons.
+    ///     match state.remove_web(web_addr).await {
+    ///         Ok(()) => println!("Web client removed successfully."),
+    ///         Err(err) => eprintln!("Failed to remove web client: {}", err),
+    ///     }
+    /// }
+    /// ```    pub async fn remove_web(&self, addr: SocketAddr) -> Result<(), String> {
         let mut update_daemons = HashSet::new();
 
         {
@@ -569,8 +984,27 @@ impl State {
         Ok(())
     }
 
-    /// Disconnects a web client from the server.
-    pub fn disconnect_web(&self, addr: SocketAddr) -> Result<(), String> {
+    /// Disconnects a web client from the server by closing its transmission channel.
+    ///
+    /// This function looks up the web client associated with the provided socket address and,
+    /// if found, closes the client's channel. It returns an error if no client is found for the given address.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the client is not found in the channel map.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::net::SocketAddr;
+    /// // Assume `state` is an instance of State.
+    /// let web_addr: SocketAddr = "127.0.0.1:8080".parse().unwrap();
+    ///
+    /// match state.disconnect_web(web_addr) {
+    ///     Ok(()) => println!("Web client disconnected successfully."),
+    ///     Err(e) => eprintln!("Disconnection failed: {}", e),
+    /// }
+    /// ```    pub fn disconnect_web(&self, addr: SocketAddr) -> Result<(), String> {
         #[cfg(feature = "lock_debug")]
         debug!("[{}:{}] awaiting WEB_CHANNEL_MAP", file!(), line!());
         self.web_channel_map.get(&addr).ok_or("Client not found in channel_map")?.tx.close_channel();
@@ -655,6 +1089,26 @@ mod tests {
     }
 
     #[tokio::test]
+    /// Simulates a complete daemon authentication handshake.
+    ///
+    /// This asynchronous function demonstrates the daemon handshake and authentication process.
+    /// It creates a new state, generates RSA key pairs, and initiates a handshake by sending a request
+    /// to a simulated daemon. After decrypting and parsing the handshake response, it authenticates the daemon,
+    /// and then asserts that the daemon has been correctly registered with the expected handshake details.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use std::sync::Arc;
+    /// # use std::net::SocketAddr;
+    /// # use uuid::Uuid;
+    /// # use futures::Future;
+    /// # use some_crate::state::State; // adjust the import path as needed
+    /// # #[tokio::main]
+    /// # async fn main() {
+    ///     daemon_authentication().await;
+    /// # }
+    /// ```
     async fn daemon_authentication() {
         let state = Arc::new(State::new());
 
