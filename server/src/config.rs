@@ -4,21 +4,26 @@ lazy_static! {
     pub static ref CONFIG: Config = load_or_create("config.toml");
 }
 
-#[derive(Debug, serde::Serialize, serde::Deserialize, Default)]
 /// The `Config` struct represents the configuration of the server.
+#[derive(Debug, serde::Serialize, serde::Deserialize, Default)]
 pub struct Config {
+    /// The server configuration.
     #[serde(default)]
     pub server: Server,
+    /// The socket configuration.
     #[serde(default)]
     pub sockets: Sockets,
+    /// The logging configuration.
     #[serde(default)]
     pub logging: Logging,
 }
 
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
 /// The `Server` struct represents the server configuration.
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct Server {
+    /// The URL of the web (frontend) server.
     pub web_url: String,
+    /// The path to the server private key.
     pub private_key: String,
 }
 
@@ -31,10 +36,12 @@ impl Default for Server {
     }
 }
 
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
 /// The `Sockets` struct represents the socket configuration.
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct Sockets {
+    /// The address to bind the web server.
     pub web: String,
+    /// The address to bind the daemon server.
     pub daemon: String,
 }
 
@@ -47,9 +54,10 @@ impl Default for Sockets {
     }
 }
 
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
 /// The `Logging` struct represents the logging configuration.
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct Logging {
+    /// The folder to store log files in.
     pub folder: String,
 }
 
