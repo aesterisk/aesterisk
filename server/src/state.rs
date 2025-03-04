@@ -2,18 +2,53 @@ use std::{borrow::Borrow, collections::{HashMap, HashSet}, fmt::Write, net::Sock
 
 use dashmap::DashMap;
 use futures_channel::mpsc;
+use josekit::jwe::alg::rsaes::RsaesJweEncrypter;
 use openssl::rand::rand_bytes;
 use packet::{events::{EventData, EventType, ListenEvent, NodeStatusEvent}, server_daemon::{auth_response::SDAuthResponsePacket, handshake_request::SDHandshakeRequestPacket, listen::SDListenPacket}, server_web::{auth_response::SWAuthResponsePacket, event::SWEventPacket, handshake_request::SWHandshakeRequestPacket}};
 use sqlx::types::Uuid;
 use tokio_tungstenite::tungstenite::Message;
 use tracing::warn;
 
-use crate::{daemon::{DaemonHandshake, DaemonSocket}, encryption, web::{WebHandshake, WebSocket}};
+use crate::encryption;
 
 /// `Tx` is a type alias for the transmitting end of an `mpsc::unbounded` channel.
 pub type Tx = mpsc::UnboundedSender<Message>;
 /// `Rx` is a type alias for the receiving end of an `mpsc::unbounded` channel.
 pub type Rx = mpsc::UnboundedReceiver<Message>;
+
+/// WebHandshake is a struct that contains the information required to send a handshake request to
+/// the web client.
+pub struct WebHandshake {
+    #[allow(dead_code)] // TODO: this should be used to authenticate which user can access which
+                        //       daemons
+    user_id: u32,
+    encrypter: RsaesJweEncrypter,
+    challenge: String,
+}
+
+/// WebSocket is a struct that contains the transmitting end of the `mpsc::unbounded` channel, to
+/// send messages to the web client, as well as an optional `WebHandshake` (if the handshake
+/// request has been sent).
+pub struct WebSocket {
+    tx: Tx,
+    handshake: Option<WebHandshake>,
+}
+
+/// `DaemonHandshake` is a struct that contains the information required to send a handshake request
+/// to the daemon.
+pub struct DaemonHandshake {
+    daemon_uuid: Uuid,
+    encrypter: RsaesJweEncrypter,
+    challenge: String,
+}
+
+/// `DaemonSocket` is a struct that contains the transmitting end of the `mpsc::unbounded` channel, to
+/// send messages to the daemon, as well as an optional `DaemonHandshake` (if the handshake request
+/// has been sent).
+pub struct DaemonSocket {
+    tx: Tx,
+    handshake: Option<DaemonHandshake>,
+}
 
 /// `WebChannelMap` is a type alias for a `DashMap` mapping a `SocketAddr` to a `WebSocket`.
 pub type WebChannelMap = Arc<DashMap<SocketAddr, WebSocket>>;

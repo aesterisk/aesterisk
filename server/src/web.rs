@@ -1,7 +1,6 @@
 use std::{borrow::Borrow, net::SocketAddr, sync::Arc};
 
 use async_trait::async_trait;
-use josekit::jwe::alg::rsaes::RsaesJweEncrypter;
 use packet::{web_server::{auth::WSAuthPacket, handshake_response::WSHandshakeResponsePacket, listen::WSListenPacket}, Packet, ID};
 use tracing::{info, instrument};
 
@@ -11,24 +10,6 @@ use crate::{config::CONFIG, db, encryption::DECRYPTER, server::Server, state::{S
 /// (frontend) connections.
 pub struct WebServer {
     state: Arc<State>,
-}
-
-/// WebHandshake is a struct that contains the information required to send a handshake request to
-/// the web client.
-pub struct WebHandshake {
-    #[allow(dead_code)] // TODO: this should be used to authenticate which user can access which
-                        //       daemons
-    pub user_id: u32,
-    pub encrypter: RsaesJweEncrypter,
-    pub challenge: String,
-}
-
-/// WebSocket is a struct that contains the transmitting end of the `mpsc::unbounded` channel, to
-/// send messages to the web client, as well as an optional `WebHandshake` (if the handshake
-/// request has been sent).
-pub struct WebSocket {
-    pub tx: Tx,
-    pub handshake: Option<WebHandshake>,
 }
 
 struct PublicKeyQuery {
