@@ -11,30 +11,6 @@ static STDERR_GUARD: Mutex<Option<WorkerGuard>> = Mutex::new(None);
 static STDOUT_GUARD: Mutex<Option<WorkerGuard>> = Mutex::new(None);
 static SUBSCRIBER_GUARD: Mutex<Option<DefaultGuard>> = Mutex::new(None);
 
-/// A wrapper around `Option<T>` that drops the value when the `Droption<T>` is dropped.
-/// Not actually required as Rust automatically drops the `Option::Some` value,
-/// but DeepSource isn't that smart and mistakenly flags the code as
-/// "Called `mem::drop` on a non-`Drop` type".
-struct Droption<T> {
-    inner: Option<T>,
-}
-
-impl<T> Droption<T> {
-    fn from(option: Option<T>) -> Self {
-        Self {
-            inner: option,
-        }
-    }
-}
-
-impl<T> Drop for Droption<T> {
-    fn drop(&mut self) {
-        if let Some(val) = self.inner.take() {
-            drop(val);
-        }
-    }
-}
-
 /// Initialize the logging system. The configuration must be loaded before calling this function.
 pub fn init() {
     let config = config::get().expect("config is not initialized");
@@ -50,7 +26,7 @@ pub fn init() {
     STDOUT_GUARD.lock().expect("stdout_guard poisoned").replace(logs_stdout_guard);
     let logs_stdio_layer = tracing_subscriber::fmt::layer().with_writer(logs_stderr.with_max_level(Level::WARN).or_else(logs_stdout.with_max_level(Level::DEBUG))).with_ansi(true).boxed();
 
-    drop(Droption::from(SUBSCRIBER_GUARD.lock().expect("subscriber_guard poisoned").take()));
+    drop(SUBSCRIBER_GUARD.lock().expect("subscriber_guard poisoned").take()); // skipcq: RS-E1021
 
     let subscriber = tracing_subscriber::registry().with(logs_file_layer).with(logs_stdio_layer);
     tracing::subscriber::set_global_default(subscriber).expect("could not set global default subscriber");
@@ -71,8 +47,8 @@ pub fn pre_init() {
 
 /// Flush the logs before the program exits.
 pub fn flush() {
-    drop(Droption::from(FILE_GUARD.lock().expect("file_guard poisoned").take()));
-    drop(Droption::from(STDERR_GUARD.lock().expect("stderr_guard poisoned").take()));
-    drop(Droption::from(STDOUT_GUARD.lock().expect("stdout_guard poisoned").take()));
-    drop(Droption::from(SUBSCRIBER_GUARD.lock().expect("subscriber_guard poisoned").take()));
+    drop(FILE_GUARD.lock().expect("file_guard poisoned").take()); // skipcq: RS-E1021
+    drop(STDERR_GUARD.lock().expect("stderr_guard poisoned").take()); // skipcq: RS-E1021
+    drop(STDOUT_GUARD.lock().expect("stdout_guard poisoned").take()); // skipcq: RS-E1021
+    drop(SUBSCRIBER_GUARD.lock().expect("subscriber_guard poisoned").take()); // skipcq: RS-E1021
 }
