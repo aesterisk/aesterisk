@@ -7,6 +7,7 @@ mod auth;
 mod handshake;
 mod listen;
 
+/// Decrypts, parses and handles an incoming packet
 pub async fn handle(msg: String) -> Result<(), String> {
     let packet = encryption::decrypt_packet(&msg).await?;
 

@@ -136,6 +136,7 @@ fn load_or_create(file: &str) -> Result<Config, String> {
     Ok(config)
 }
 
+/// Initializes the configuration with a default config file path and CLI arguments
 pub fn init(default_file: &str, mut override_args: Cli) -> Result<&'static Config, String> {
     if CONFIG.get().is_some() {
         return Err("config already initialized".to_string());
@@ -146,6 +147,7 @@ pub fn init(default_file: &str, mut override_args: Cli) -> Result<&'static Confi
     Ok(CONFIG.get_or_init(|| config.override_with(&mut override_args)))
 }
 
+/// Gets the configuration. The configuration must be initialized first (by calling `config::init()`)
 pub fn get() -> Result<&'static Config, String> {
     CONFIG.get().ok_or("config not initialized".to_string())
 }

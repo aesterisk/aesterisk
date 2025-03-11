@@ -3,6 +3,7 @@ use tokio_tungstenite::tungstenite::Message;
 
 use crate::{encryption, SENDER};
 
+/// Handles the SDHandshakeRequestPacket
 pub async fn handle(handshake_request_packet: SDHandshakeRequestPacket) -> Result<(), String> {
     SENDER.lock().await.as_ref().ok_or("sender is not available")?.unbounded_send(
         Message::Text(

@@ -9,6 +9,7 @@ use tracing::{error, warn};
 
 use crate::{encryption, LISTENS, SENDER};
 
+/// Runs the status service, sending status information to the clients
 pub async fn run(token: CancellationToken) -> Result<(), String> {
     select! {
         _ = token.cancelled() => {

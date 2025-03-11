@@ -10,6 +10,7 @@ use tracing::{error, info, warn};
 
 use crate::{config, encryption, packets, Rx, LISTENS, SENDER};
 
+/// Runs the client service, connecting to the Aesterisk Server
 pub async fn run(token: CancellationToken) -> Result<(), String> {
     let mut interval = tokio::time::interval(Duration::from_secs(1));
     let mut attempts = 0;
