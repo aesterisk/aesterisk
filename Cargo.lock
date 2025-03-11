@@ -32,6 +32,7 @@ dependencies = [
  "sysinfo",
  "tokio 1.43.0",
  "tokio-tungstenite",
+ "tokio-util",
  "toml",
  "tracing",
  "tracing-appender",
