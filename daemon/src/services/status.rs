@@ -23,6 +23,7 @@ pub async fn run(token: CancellationToken) -> Result<(), String> {
 }
 
 async fn send_loop() -> Result<(), String> {
+    // TODO: make this configurable
     let mut interval = tokio::time::interval(Duration::from_secs(1));
     let mut system = System::new();
     let mut disks = Disks::new();

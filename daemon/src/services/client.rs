@@ -146,7 +146,7 @@ async fn handle_connection() -> Result<(), String> {
                 }.to_packet()?,
             )?
         )
-    ).map_err(|e| format!("Could not send message: {}", e))?;
+    ).map_err(|e| format!("Could not send packet: {}", e))?;
 
     Ok(())
 }
