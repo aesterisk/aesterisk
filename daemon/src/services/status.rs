@@ -81,8 +81,8 @@ async fn send_loop() -> Result<(), String> {
             if let Some(tx) = SENDER.lock().await.as_ref() {
                 match tx.unbounded_send(Message::Text(packet)) {
                     Ok(_) => (),
-                    Err(_) => {
-                        error!("Error sending packet");
+                    Err(e) => {
+                        error!("Could not send packet: {}", e);
                         continue;
                     }
                 }

@@ -13,7 +13,7 @@ pub async fn handle(handshake_request_packet: SDHandshakeRequestPacket) -> Resul
                 }.to_packet()?,
             )?
         )
-    ).map_err(|_| "Could not send message")?;
+    ).map_err(|e| format!("Could not send message: {}", e))?;
 
     Ok(())
 }
