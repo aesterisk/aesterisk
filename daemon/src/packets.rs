@@ -1,10 +1,11 @@
-use packet::{server_daemon::{auth_response::SDAuthResponsePacket, handshake_request::SDHandshakeRequestPacket, listen::SDListenPacket}, ID};
+use packet::{server_daemon::{auth_response::SDAuthResponsePacket, handshake_request::SDHandshakeRequestPacket, init_data::SDInitDataPacket, listen::SDListenPacket}, ID};
 use tracing::debug;
 
 use crate::encryption;
 
 mod auth;
 mod handshake;
+mod init_data;
 mod listen;
 
 /// Decrypts, parses and handles an incoming packet
@@ -22,6 +23,9 @@ pub async fn handle(msg: String) -> Result<(), String> {
         }
         ID::SDListen => {
             listen::handle(SDListenPacket::parse(packet).ok_or("Could not parse SDListenPacket")?).await
+        }
+        ID::SDInitData => {
+            init_data::handle(SDInitDataPacket::parse(packet).ok_or("Could not parse SDInitDataPacket")?).await
         }
         _ => {
             Err(format!("Should not receive [A*|D*|SA] packet: {:?}", packet.id))
