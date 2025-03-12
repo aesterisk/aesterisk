@@ -9,7 +9,7 @@ pub struct Network {
 
 #[derive(serde::Serialize, serde::Deserialize, Debug)]
 pub struct SDInitDataPacket {
-    networks: Vec<Network>,
+    pub networks: Vec<Network>,
 }
 
 impl SDInitDataPacket {

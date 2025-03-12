@@ -4,12 +4,13 @@ use dashmap::DashMap;
 use futures_channel::mpsc;
 use josekit::jwe::alg::rsaes::RsaesJweEncrypter;
 use openssl::rand::rand_bytes;
-use packet::{events::{EventData, EventType, ListenEvent, NodeStatusEvent}, server_daemon::{auth_response::SDAuthResponsePacket, handshake_request::SDHandshakeRequestPacket, listen::SDListenPacket}, server_web::{auth_response::SWAuthResponsePacket, event::SWEventPacket, handshake_request::SWHandshakeRequestPacket}};
+use packet::{events::{EventData, EventType, ListenEvent, NodeStatusEvent}, server_daemon::{auth_response::SDAuthResponsePacket, handshake_request::SDHandshakeRequestPacket, init_data::{Network, SDInitDataPacket}, listen::SDListenPacket}, server_web::{auth_response::SWAuthResponsePacket, event::SWEventPacket, handshake_request::SWHandshakeRequestPacket}};
 use sqlx::types::Uuid;
+use tokio::{join, task::JoinHandle};
 use tokio_tungstenite::tungstenite::Message;
 use tracing::warn;
 
-use crate::encryption;
+use crate::{db, encryption};
 
 /// `Tx` is a type alias for the transmitting end of an `mpsc::unbounded` channel.
 pub type Tx = mpsc::UnboundedSender<Message>;
@@ -265,6 +266,44 @@ impl State {
         debug!("[{}:{}] dropped DAEMON_LISTEN_MAP", file!(), line!());
         #[cfg(feature = "lock_debug")]
         debug!("[{}:{}] dropped DAEMON_CHANNEL_MAP", file!(), line!());
+
+        Ok(())
+    }
+
+    /// Sends initial data to a daemon.
+    pub async fn send_init_data(&self, addr: SocketAddr) -> Result<(), String> {
+        let uuid = self.daemon_channel_map.get(&addr).ok_or("Client not found in channel_map")?.handshake.as_ref().ok_or("Client hasn't requested authentication")?.daemon_uuid;
+        
+        struct DbNetwork {
+            network_id: i32,
+            network_name: String,
+            network_local_ip: i32,
+        }
+
+        let networks = sqlx::query_as!(DbNetwork, r#"
+            SELECT
+                networks.network_id,
+                networks.network_name,
+                networks.network_local_ip
+            FROM aesterisk.nodes
+            LEFT JOIN aesterisk.node_networks
+                ON nodes.node_id = node_networks.node_id
+            LEFT JOIN aesterisk.networks
+                ON node_networks.network_id = networks.network_id
+            WHERE nodes.node_uuid = $1;
+        "#, uuid).fetch_all(db::get()?).await.map_err(|_| "failed to fetch network data")?;
+
+        let init_data = SDInitDataPacket {
+            networks: networks.into_iter().map(|nw| Network {
+                id: nw.network_id as u32,
+                name: nw.network_name,
+                subnet: nw.network_local_ip as u8,
+            }).collect(),
+        };
+
+        let client = self.daemon_channel_map.get(&addr).ok_or("Client not found in channel_map")?;
+        let encrypter = &client.handshake.as_ref().ok_or("Client hasn't requested authentication")?.encrypter;
+        client.tx.unbounded_send(Message::Text(encryption::encrypt_packet(init_data.to_packet()?, encrypter)?)).map_err(|e| format!("Couldn't send packet: {}", e))?;
 
         Ok(())
     }

@@ -53,6 +53,8 @@ impl DaemonServer {
 
         info!("Authenticated");
 
+        self.state.send_init_data(addr).await?;
+
         Ok(())
     }
 
