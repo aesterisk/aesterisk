@@ -12,6 +12,7 @@ use tracing::{error, info, warn};
 use uuid::Uuid;
 
 mod config;
+mod docker;
 mod encryption;
 mod logging;
 mod packets;
@@ -32,6 +33,7 @@ enum ExitCode {
     EncryptionError = 2,
     JoinError = 3,
     SignalError = 4,
+    DockerError = 5,
 }
 
 impl From<ExitCode> for i32 {
@@ -99,6 +101,8 @@ async fn main() {
         }
     };
 
+    info!(AESTERISK_LOGO);
+
     logging::init();
 
     info!("Starting Aesterisk Daemon v{}", env!("CARGO_PKG_VERSION"));
@@ -119,6 +123,14 @@ async fn main() {
     if Uuid::parse_str(&config.daemon.uuid).is_err() {
         error!("Daemon ID is incorrectly set! Please check your config file.");
         exit(ExitCode::ConfigError)
+    }
+
+    match docker::init() {
+        Ok(()) => info!("Docker connection established"),
+        Err(e) => {
+            error!("Error initializing Docker: {}", e);
+            exit(ExitCode::DockerError);
+        }
     }
 
     let token = CancellationToken::new();
