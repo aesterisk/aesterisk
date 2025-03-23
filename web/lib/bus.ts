@@ -31,7 +31,6 @@ export function createEventBus<E extends EventMap>(config?: {
 		const intercept = config?.preListen?.(key, handler, preParams);
 
 		if(intercept) {
-			handler(intercept);
 			return () => {};
 		}
 
