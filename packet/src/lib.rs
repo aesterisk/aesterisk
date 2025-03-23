@@ -34,6 +34,8 @@ pub enum ID {
     SDListen = 9,
     DSEvent = 10,
     SWEvent = 11,
+    WSSync = 12,
+    SDSync = 13,
 }
 
 impl Packet {

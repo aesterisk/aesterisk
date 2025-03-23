@@ -23,3 +23,5 @@ lazy_static.workspace = true
 josekit.workspace = true
 uuid = "1.11.0"
 sysinfo = "0.33.1"
+bollard = "0.18.1"
+camino = "1.1.9"

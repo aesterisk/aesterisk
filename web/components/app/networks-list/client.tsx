@@ -17,6 +17,8 @@ import { Button } from "@/components/ui/button";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { cn } from "@/lib/utils";
 import { insertNetwork } from "./actions";
+import { socketBus } from "@/buses/socket";
+import { ID } from "@/packets/packet";
 
 export default function Client({ nodes, networks, teamID }: {
 	nodes: Node[];
@@ -81,11 +83,13 @@ export default function Client({ nodes, networks, teamID }: {
 	const [nodeSelectOpen, setNodeSelectOpen] = useState(false);
 
 	const onSubmit = useCallback(async(data: z.infer<typeof FormSchema>) => {
+		const node = nodes.find((n) => n.id === data.node)!;
 		const network = await insertNetwork(teamID, data.node, data.name, data.subnet);
 		setAllNetworks((n) => n.concat({
 			...network,
-			node: nodes.find((node) => node.id === data.node)!,
+			node,
 		}));
+		socketBus.emit(ID.WSSync, node.uuid);
 	}, [teamID, nodes]);
 
 	return (

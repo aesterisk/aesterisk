@@ -12,6 +12,7 @@ import { WSListenPacket } from "@/packets/listen";
 import { SWAuthResponseData, WSAuthPacket } from "@/packets/auth";
 import { Event } from "@/packets/events";
 import { eventsBus } from "@/buses/event";
+import { WSSyncPacket } from "@/packets/sync";
 
 enum SocketState {
 	NotConnected,
@@ -65,8 +66,14 @@ export const SocketProvider = ({ children, userID, publicKey, privateKey }: Para
 			}
 		});
 
+		const unsubSync = socketBus.on(ID.WSSync, (daemonUuid) => {
+			socketBus.once("connected", async() => {
+				socket?.send(await encryptPacket(WSSyncPacket(daemonUuid)));
+			});
+		});
+
 		const unsubListenEvent = socketBus.on(ID.WSListen, (events) => {
-			socketBus.on("connected", async() => {
+			socketBus.once("connected", async() => {
 				socket?.send(await encryptPacket(WSListenPacket(events)));
 			});
 		});
@@ -169,6 +176,7 @@ export const SocketProvider = ({ children, userID, publicKey, privateKey }: Para
 			unsubListenEvent();
 			unsubHandshakeRequest();
 			unsubAuthResponse();
+			unsubSync();
 		};
 	}, [socket, setSocket, socketConnectionTries, state, privateKey, publicKey, userID]);
 
