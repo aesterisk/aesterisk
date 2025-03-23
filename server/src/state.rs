@@ -273,11 +273,19 @@ impl State {
     pub async fn send_init_data(&self, addr: SocketAddr) -> Result<(), String> {
         let uuid = self.daemon_channel_map.get(&addr).ok_or("Client not found in channel_map")?.handshake.as_ref().ok_or("Client hasn't requested authentication")?.daemon_uuid;
         
-        self.sync_daemon(uuid).await
+        self.sync_daemon(uuid, Some(addr)).await
     }
 
     // Sends data to a daemon for synchronization with the database.
-    pub async fn sync_daemon(&self, uuid: Uuid) -> Result<(), String> {
+    pub async fn sync_daemon(&self, uuid: Uuid, addr: Option<SocketAddr>) -> Result<(), String> {
+        let addr = addr.or_else(|| self.daemon_id_map.get(&uuid).map(|a| *a));
+
+        if addr.is_none() {
+            return Ok(());
+        }
+
+        let addr = addr.expect("addr should always exist");
+
         struct DbNetwork {
             network_id: i32,
             network_name: String,
@@ -305,7 +313,6 @@ impl State {
             }).collect(),
         };
 
-        let addr = self.daemon_id_map.get(&uuid).ok_or("Daemon not found in DaemonIDMap")?;
         let client = self.daemon_channel_map.get(&addr).ok_or("Client not found in channel_map")?;
         let encrypter = &client.handshake.as_ref().ok_or("Client hasn't requested authentication")?.encrypter;
         client.tx.unbounded_send(Message::Text(encryption::encrypt_packet(sync.to_packet()?, encrypter)?)).map_err(|e| format!("Couldn't send packet: {}", e))?;

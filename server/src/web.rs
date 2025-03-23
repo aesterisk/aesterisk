@@ -62,7 +62,7 @@ impl WebServer {
     async fn handle_sync(&self, sync_packet: WSSyncPacket) -> Result<(), String> {
         debug!("Handling sync packet: {:#?}", sync_packet);
 
-        self.state.sync_daemon(sync_packet.daemon).await
+        self.state.sync_daemon(sync_packet.daemon, None).await
     }
 }
 
