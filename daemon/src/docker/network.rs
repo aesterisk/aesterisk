@@ -24,7 +24,7 @@ pub async fn create_network(id: u32, subnet: u8) -> Result<String, String> {
         ..Default::default()
     };
 
-    Ok(super::get()?.create_network(create_network_options).await.expect("could not create docker network").id)
+    Ok(super::get()?.create_network(create_network_options).await.map_err(|e| format!("Could not create docker network: {}", e))?.id)
 }
 
 pub async fn get_networks() -> Result<Vec<Network>, String> {
