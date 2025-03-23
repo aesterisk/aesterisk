@@ -302,7 +302,8 @@ impl State {
                 ON nodes.node_id = node_networks.node_id
             LEFT JOIN aesterisk.networks
                 ON node_networks.network_id = networks.network_id
-            WHERE nodes.node_uuid = $1;
+            WHERE nodes.node_uuid = $1
+            AND networks.network_id IS NOT NULL;
         "#, uuid).fetch_all(db::get()?).await.map_err(|_| "failed to fetch network data")?;
 
         let sync = SDSyncPacket {
