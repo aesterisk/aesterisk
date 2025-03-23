@@ -89,6 +89,8 @@ pub struct Cli {
 async fn main() {
     let cli = Cli::parse();
 
+    println!("{}\n", AESTERISK_LOGO);
+
     let mut exit_code = ExitCode::Success;
 
     logging::pre_init();
@@ -100,8 +102,6 @@ async fn main() {
             exit(ExitCode::ConfigError)
         }
     };
-
-    info!(AESTERISK_LOGO);
 
     logging::init();
 
