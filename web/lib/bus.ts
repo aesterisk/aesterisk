@@ -8,7 +8,8 @@ export interface EventBus<T extends EventMap> {
 	on<Key extends keyof T>(key: Key, handler: T[Key], preParams?: any): ()=> void;
 	off<Key extends keyof T>(key: Key, handlers: T[Key]): void;
 	emit<Key extends keyof T>(key: Key, payload?: Parameters<T[Key]>[0]): void;
-	once<Key extends keyof T>(key: Key, handler: T[Key]): void;
+	// eslint-disable-next-line @typescript-eslint/no-explicit-any
+	once<Key extends keyof T>(key: Key, handler: T[Key], preParams?: any): void;
 }
 
 type Bus<E> = Record<keyof E, E[keyof E][]>;
@@ -29,10 +30,7 @@ export function createEventBus<E extends EventMap>(config?: {
 
 	const on: EventBus<E>["on"] = (key, handler, preParams) => {
 		const intercept = config?.preListen?.(key, handler, preParams);
-
-		if(intercept) {
-			return () => {};
-		}
+		if(intercept) return () => {};
 
 		if(!bus[key]) bus[key] = [];
 
@@ -53,7 +51,10 @@ export function createEventBus<E extends EventMap>(config?: {
 		});
 	};
 
-	const once: EventBus<E>["once"] = (key, handler) => {
+	const once: EventBus<E>["once"] = (key, handler, preParams) => {
+		const intercept = config?.preListen?.(key, handler, preParams);
+		if(intercept) return;
+
 		const handleOnce = (payload: Parameters<typeof handler>) => {
 			handler(payload);
 			off(key, handleOnce as typeof handler);

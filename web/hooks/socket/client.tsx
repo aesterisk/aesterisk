@@ -67,13 +67,13 @@ export const SocketProvider = ({ children, userID, publicKey, privateKey }: Para
 		});
 
 		const unsubSync = socketBus.on(ID.WSSync, (daemonUuid) => {
-			socketBus.on("connected", async() => {
+			socketBus.once("connected", async() => {
 				socket?.send(await encryptPacket(WSSyncPacket(daemonUuid)));
 			});
 		});
 
 		const unsubListenEvent = socketBus.on(ID.WSListen, (events) => {
-			socketBus.on("connected", async() => {
+			socketBus.once("connected", async() => {
 				socket?.send(await encryptPacket(WSListenPacket(events)));
 			});
 		});
