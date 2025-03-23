@@ -7,6 +7,7 @@ interface SocketBus extends EventMap {
 	[ID.SWAuthResponse]: (packet: SWAuthResponseData)=> void;
 	[ID.SWEvent]: (event: Event)=> void;
 	[ID.WSListen]: (events: ListenEvent[])=> void;
+	[ID.WSSync]: (daemonUuid: string)=> void;
 	connected: ()=> void;
 }
 
