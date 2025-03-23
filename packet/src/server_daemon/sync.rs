@@ -8,13 +8,13 @@ pub struct Network {
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Debug)]
-pub struct SDInitDataPacket {
+pub struct SDSyncPacket {
     pub networks: Vec<Network>,
 }
 
-impl SDInitDataPacket {
+impl SDSyncPacket {
     pub fn parse(packet: Packet) -> Option<Self> {
-        if packet.id != ID::SDInitData {
+        if packet.id != ID::SDSync {
             return None;
         }
 
@@ -23,7 +23,7 @@ impl SDInitDataPacket {
                 let res = serde_json::from_value(packet.data);
 
                 if res.is_err() {
-                    println!("W (Packet) SDListen deserializing error: {:#?}", res.as_ref().expect_err("Result::err should return Some when Result::is_err returns true"));
+                    println!("W (Packet) SDSync deserializing error: {:#?}", res.as_ref().expect_err("Result::err should return Some when Result::is_err returns true"));
                 }
 
                 res.ok()
@@ -33,7 +33,7 @@ impl SDInitDataPacket {
 
     pub fn to_packet(&self) -> Result<Packet, String> {
         let data = serde_json::to_value(self).map_err(|_| "packet data should be serializeable")?;
-        Ok(Packet::new(Version::V0_1_0, ID::SDInitData, data))
+        Ok(Packet::new(Version::V0_1_0, ID::SDSync, data))
     }
 
     pub fn to_string(&self) -> Result<String, String> {

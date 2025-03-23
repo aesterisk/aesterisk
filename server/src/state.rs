@@ -4,9 +4,8 @@ use dashmap::DashMap;
 use futures_channel::mpsc;
 use josekit::jwe::alg::rsaes::RsaesJweEncrypter;
 use openssl::rand::rand_bytes;
-use packet::{events::{EventData, EventType, ListenEvent, NodeStatusEvent}, server_daemon::{auth_response::SDAuthResponsePacket, handshake_request::SDHandshakeRequestPacket, init_data::{Network, SDInitDataPacket}, listen::SDListenPacket}, server_web::{auth_response::SWAuthResponsePacket, event::SWEventPacket, handshake_request::SWHandshakeRequestPacket}};
+use packet::{events::{EventData, EventType, ListenEvent, NodeStatusEvent}, server_daemon::{auth_response::SDAuthResponsePacket, handshake_request::SDHandshakeRequestPacket, sync::{Network, SDSyncPacket}, listen::SDListenPacket}, server_web::{auth_response::SWAuthResponsePacket, event::SWEventPacket, handshake_request::SWHandshakeRequestPacket}};
 use sqlx::types::Uuid;
-use tokio::{join, task::JoinHandle};
 use tokio_tungstenite::tungstenite::Message;
 use tracing::warn;
 
@@ -274,6 +273,11 @@ impl State {
     pub async fn send_init_data(&self, addr: SocketAddr) -> Result<(), String> {
         let uuid = self.daemon_channel_map.get(&addr).ok_or("Client not found in channel_map")?.handshake.as_ref().ok_or("Client hasn't requested authentication")?.daemon_uuid;
         
+        self.sync_daemon(uuid).await
+    }
+
+    // Sends data to a daemon for synchronization with the database.
+    pub async fn sync_daemon(&self, uuid: Uuid) -> Result<(), String> {
         struct DbNetwork {
             network_id: i32,
             network_name: String,
@@ -293,7 +297,7 @@ impl State {
             WHERE nodes.node_uuid = $1;
         "#, uuid).fetch_all(db::get()?).await.map_err(|_| "failed to fetch network data")?;
 
-        let init_data = SDInitDataPacket {
+        let sync = SDSyncPacket {
             networks: networks.into_iter().map(|nw| Network {
                 id: nw.network_id as u32,
                 name: nw.network_name,
@@ -301,9 +305,10 @@ impl State {
             }).collect(),
         };
 
+        let addr = self.daemon_id_map.get(&uuid).ok_or("Daemon not found in DaemonIDMap")?;
         let client = self.daemon_channel_map.get(&addr).ok_or("Client not found in channel_map")?;
         let encrypter = &client.handshake.as_ref().ok_or("Client hasn't requested authentication")?.encrypter;
-        client.tx.unbounded_send(Message::Text(encryption::encrypt_packet(init_data.to_packet()?, encrypter)?)).map_err(|e| format!("Couldn't send packet: {}", e))?;
+        client.tx.unbounded_send(Message::Text(encryption::encrypt_packet(sync.to_packet()?, encrypter)?)).map_err(|e| format!("Couldn't send packet: {}", e))?;
 
         Ok(())
     }

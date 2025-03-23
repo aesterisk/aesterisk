@@ -1,12 +1,12 @@
-use packet::server_daemon::init_data::SDInitDataPacket;
+use packet::server_daemon::sync::SDSyncPacket;
 use tracing::{debug, info};
 
 use crate::docker;
 
-pub async fn handle(init_data_packet: SDInitDataPacket) -> Result<(), String> {
+pub async fn handle(sync_packet: SDSyncPacket) -> Result<(), String> {
     info!("Syncing data from server with Docker");
 
-    for nw in init_data_packet.networks {
+    for nw in sync_packet.networks {
         debug!("Checking network {}", nw.id);
         if !docker::network::network_exists(nw.id).await? {
             debug!("Creating network {}", nw.id);
