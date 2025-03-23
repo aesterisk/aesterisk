@@ -1,8 +1,8 @@
 use std::{borrow::Borrow, net::SocketAddr, sync::Arc};
 
 use async_trait::async_trait;
-use packet::{web_server::{auth::WSAuthPacket, handshake_response::WSHandshakeResponsePacket, listen::WSListenPacket}, Packet, ID};
-use tracing::{info, instrument};
+use packet::{web_server::{auth::WSAuthPacket, handshake_response::WSHandshakeResponsePacket, listen::WSListenPacket, sync::WSSyncPacket}, Packet, ID};
+use tracing::{debug, info, instrument};
 
 use crate::{config::CONFIG, db, encryption::DECRYPTER, server::Server, state::{State, Tx, WebKeyCache}};
 
@@ -58,6 +58,12 @@ impl WebServer {
 
         self.state.send_listen(addr, listen_packet.events).await
     }
+
+    async fn handle_sync(&self, sync_packet: WSSyncPacket) -> Result<(), String> {
+        debug!("Handling sync packet: {:#?}", sync_packet);
+
+        self.state.sync_daemon(sync_packet.daemon).await
+    }
 }
 
 #[async_trait]
@@ -104,6 +110,9 @@ impl Server for WebServer {
             ID::WSListen => {
                 self.handle_listen(WSListenPacket::parse(packet).ok_or("Could not parse WSListenPacket")?, addr).await
             },
+            ID::WSSync => {
+                self.handle_sync(WSSyncPacket::parse(packet).ok_or("Could not parse WSSyncPacket")?).await
+            }
             _ => {
                 Err(format!("Should not receive [SD]* packet: {:?}", packet.id))
             },
