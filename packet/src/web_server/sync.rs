@@ -28,7 +28,7 @@ impl WSSyncPacket {
 
     pub fn to_packet(&self) -> Result<Packet, String> {
         let data = serde_json::to_value(self).map_err(|_| "packet data should be serializeable")?;
-        Ok(Packet::new(Version::V0_1_0, ID::WSListen, data))
+        Ok(Packet::new(Version::V0_1_0, ID::WSSync, data))
     }
 
     pub fn to_string(&self) -> Result<String, String> {
