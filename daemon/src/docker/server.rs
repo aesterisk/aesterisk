@@ -87,7 +87,7 @@ pub async fn create_server(server: Server) -> Result<String, String> {
     let mounts = if !server.tag.mounts.is_empty() {
         debug!("Validating mounts...");
 
-        let server_data = format!("./data/{}/", server.id);
+        let server_data = format!("/tmp/aesterisk/data/{}/", server.id);
         let data_path = Utf8Path::new(&server_data);
 
         let _ = create_dir_all(data_path);
