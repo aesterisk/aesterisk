@@ -4,7 +4,7 @@ use dashmap::DashMap;
 use futures_channel::mpsc;
 use josekit::jwe::alg::rsaes::RsaesJweEncrypter;
 use openssl::rand::rand_bytes;
-use packet::{events::{EventData, EventType, ListenEvent, NodeStatusEvent}, server_daemon::{auth_response::SDAuthResponsePacket, handshake_request::SDHandshakeRequestPacket, listen::SDListenPacket, sync::{Network, SDSyncPacket}}, server_web::{auth_response::SWAuthResponsePacket, event::SWEventPacket, handshake_request::SWHandshakeRequestPacket}};
+use packet::{events::{EventData, EventType, ListenEvent, NodeStatusEvent}, server_daemon::{auth_response::SDAuthResponsePacket, handshake_request::SDHandshakeRequestPacket, listen::SDListenPacket, sync::{Env, EnvDef, EnvType, Healthcheck, Mount, Network, Port, Protocol, SDSyncPacket, Server, ServerNetwork, Tag}}, server_web::{auth_response::SWAuthResponsePacket, event::SWEventPacket, handshake_request::SWHandshakeRequestPacket}};
 use sqlx::types::Uuid;
 use tokio_tungstenite::tungstenite::Message;
 use tracing::warn;
@@ -421,12 +421,62 @@ impl State {
             WHERE nodes.node_uuid = $1;
         "#, uuid).fetch_all(db::get()?).await.map_err(|e| format!("Failed to fetch server data: {}", e))?;
 
+        let servers = servers.into_iter().map(|s| Server {
+            id: s.server_id as u32,
+            tag: Tag {
+                image: s.tag_image,
+                docker_tag: s.tag_docker_tags,
+                healthcheck: Healthcheck {
+                    test: s.tag_healthcheck_test,
+                    interval: s.tag_healthcheck_interval as u64,
+                    timeout: s.tag_healthcheck_timeout as u64,
+                    retries: s.tag_healthcheck_retries as u64,
+                },
+                mounts: s.mount_container_path.unwrap_or_default().into_iter().zip(s.mount_host_path.unwrap_or_default()).map(|(container_path, host_path)| Mount {
+                    container_path,
+                    host_path,
+                }).collect(),
+                env_defs: s.env_def_key.unwrap_or_default().into_iter()
+                    .zip(s.env_def_required.unwrap_or_default())
+                    .zip(s.env_def_type.unwrap_or_default())
+                    .zip(s.env_def_default_value.unwrap_or_default())
+                    .zip(s.env_def_regex.unwrap_or_default())
+                    .zip(s.env_def_min.unwrap_or_default())
+                    .zip(s.env_def_max.unwrap_or_default())
+                    .zip(s.env_def_trim.unwrap_or_default())
+                    .map(|(((((((key, required), env_type), default), regex), min), max), trim)| EnvDef {
+                        key,
+                        required,
+                        env_type: EnvType::from(env_type as u8),
+                        default,
+                        regex,
+                        min: min.map(|min| min as i64),
+                        max: max.map(|max| max as i64),
+                        trim,
+                    })
+                    .collect(),
+            },
+            envs: s.env_key.unwrap_or_default().into_iter().zip(s.env_value.unwrap_or_default()).map(|(key, value)| Env {
+                key,
+                value,
+            }).collect(),
+            networks: s.network_id.unwrap_or_default().into_iter().zip(s.network_local_ip.unwrap_or_default()).map(|(network, ip)| ServerNetwork {
+                network: network as u32,
+                ip: ip as u8,
+            }).collect(),
+            ports: s.port_port.unwrap_or_default().into_iter().zip(s.port_mapped.unwrap_or_default()).zip(s.port_protocol.unwrap_or_default()).map(|((port, mapped), protocol)| Port {
+                port: port as u16,
+                mapped: mapped as u16,
+                protocol: Protocol::from(protocol as u8),
+            }).collect(),
+        }).collect();
+
         let sync = SDSyncPacket {
             networks: networks.into_iter().map(|nw| Network {
                 id: nw.network_id as u32,
                 subnet: nw.network_local_ip as u8,
             }).collect(),
-            servers: vec![],
+            servers,
         };
 
         let client = self.daemon_channel_map.get(&addr).ok_or("Client not found in channel_map")?;
