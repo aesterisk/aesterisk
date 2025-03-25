@@ -15,5 +15,14 @@ pub async fn handle(sync_packet: SDSyncPacket) -> Result<(), String> {
         }
     }
 
+    for server in sync_packet.servers {
+        debug!("Checking server {}", server.id);
+        if !docker::server::server_exists(server.id).await? {
+            debug!("Creating server {}", server.id);
+            let id = docker::server::create_server(server).await?;
+            debug!("Created server ({})", id);
+        }
+    }
+
     Ok(())
 }

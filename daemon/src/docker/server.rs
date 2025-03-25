@@ -2,118 +2,13 @@ use std::{collections::HashMap, fs::create_dir_all};
 use bollard::{container::{Config, CreateContainerOptions, ListContainersOptions, NetworkingConfig, RemoveContainerOptions, RestartContainerOptions, StartContainerOptions, StopContainerOptions}, image::CreateImageOptions, secret::{ContainerSummary, EndpointIpamConfig, EndpointSettings, HealthConfig, HostConfig, Mount, MountBindOptions, MountTypeEnum, PortBinding, RestartPolicy, RestartPolicyNameEnum}};
 use camino::{Utf8Component, Utf8Path, Utf8PathBuf};
 use futures_util::StreamExt;
+use packet::server_daemon::sync::{EnvType, Server};
 use regex::Regex;
 use tracing::debug;
 
-use crate::docker::network;
+use crate::docker::{self, network};
 
-#[repr(u8)]
-pub enum PortProtocol {
-    Tcp = 0,
-    Udp = 1,
-}
-
-impl PortProtocol {
-    pub fn name(&self) -> &'static str {
-        match self {
-            PortProtocol::Tcp => "tcp",
-            PortProtocol::Udp => "udp",
-        }
-    }
-}
-
-pub struct AServer {
-    pub id: i32,
-    pub name: String,
-    pub tag: ATag,
-    pub envs: Vec<AEnv>,
-    pub networks: Vec<AServerNetwork>,
-    pub ports: Vec<APort>,
-}
-
-pub struct ATag {
-	pub id: i32,
-	pub name: String,
-	pub image: String,
-	pub docker_tag: String,
-    pub healthcheck: AHealthcheck,
-    pub mounts: Vec<AMount>,
-    pub env_defs: Vec<AEnvDef>,
-}
-
-pub struct AEnv {
-    pub id: i32,
-    pub key: String,
-    pub value: String,
-    pub secret: bool,
-}
-
-pub struct AServerNetwork {
-    pub network_id: i32,
-    pub network_subnet: u8,
-    pub server_ip: u8,
-}
-
-pub struct APort {
-    pub port_id: i32,
-    pub port_port: u16,
-    pub port_protocol: PortProtocol,
-    pub port_mapped: u16,
-}
-
-pub struct AMount {
-    pub id: i32,
-    pub container_path: String,
-    pub host_path: String,
-}
-
-pub struct AHealthcheck {
-    pub test: Vec<String>,
-    pub interval: u64,
-    pub timeout: u64,
-    pub retries: u64,
-}
-
-pub struct AEnvDef {
-    pub id: i32,
-    pub name: String,
-    pub description: String,
-    pub key: String,
-    pub secret: bool,
-    pub required: bool,
-    pub type_: AEnvDefType,
-    pub default: Option<String>,
-    pub regex: Option<String>,
-    pub min: Option<i64>,
-    pub max: Option<i64>,
-    pub trim: bool,
-}
-
-#[repr(u8)]
-pub enum AEnvDefType {
-    Boolean = 0,
-    Number = 1,
-    String = 2,
-}
-
-impl From<u8> for AEnvDefType {
-    fn from(value: u8) -> Self {
-        match value {
-            0 => AEnvDefType::Boolean,
-            1 => AEnvDefType::Number,
-            2 => AEnvDefType::String,
-            _ => panic!("Invalid value for AEnvDefType"),
-        }
-    }
-}
-
-impl From<AEnvDefType> for u8 {
-    fn from(value: AEnvDefType) -> Self {
-        value as u8
-    }
-}
-
-pub async fn create_server(server: AServer) -> Result<String, String> {
+pub async fn create_server(server: Server) -> Result<String, String> {
     let envs = server.envs.into_iter().map(|e| (e.key.clone(), e)).collect::<HashMap<_, _>>();
 
     for env_def in server.tag.env_defs.into_iter() {
@@ -126,13 +21,13 @@ pub async fn create_server(server: AServer) -> Result<String, String> {
         if exists {
             let env = envs.get(&env_def.key).ok_or("env should exist")?;
 
-            match env_def.type_ {
-                AEnvDefType::Boolean => {
+            match env_def.env_type {
+                EnvType::Boolean => {
                     if env.value != "1" && env.value != "0" {
                         return Err(format!("Invalid value for {}: '{}' is not a boolean value", env_def.key, env.value));
                     }
                 },
-                AEnvDefType::Number => {
+                EnvType::Number => {
                     let parsed = env.value.parse::<i64>();
                     match parsed {
                         Ok(num) => {
@@ -149,7 +44,7 @@ pub async fn create_server(server: AServer) -> Result<String, String> {
                         }
                     };
                 },
-                AEnvDefType::String => {
+                EnvType::String => {
                     let value = if env_def.trim {
                         env.value.trim()
                     } else {
@@ -259,6 +154,26 @@ pub async fn create_server(server: AServer) -> Result<String, String> {
 
     debug!("Creating container...");
 
+    let endpoints_config: Result<HashMap<_, _>, String> = if let Some(id) = nicc {
+        Ok(HashMap::from([
+            (id, EndpointSettings::default())
+        ]))
+    } else {
+        let subnets = docker::network::get_networks().await?.into_iter().map(|nw| (nw.id, nw.subnet)).collect::<HashMap<_, _>>();
+
+        let networks = server.networks.into_iter().map(|nw| Ok((format!("ae_nw_{}", nw.network), EndpointSettings {
+            ipam_config: Some(EndpointIpamConfig {
+                ipv4_address: Some(format!("10.133.{}.{}", subnets.get(&nw.network).ok_or("network not found")?, nw.ip)),
+                ..Default::default()
+            }),
+            ..Default::default()
+        }))).collect::<Result<Vec<_>, String>>()?;
+
+        Ok(networks.into_iter().collect::<HashMap<_, _>>())
+    };
+
+    let endpoints_config = endpoints_config?;
+
     let container_config = Config {
         hostname: Some(format!("ae_sv_{}", server.id)),
         tty: Some(true),
@@ -275,32 +190,18 @@ pub async fn create_server(server: AServer) -> Result<String, String> {
             retries: Some(server.tag.healthcheck.retries as i64),
             ..Default::default()
         }),
-        networking_config: if let Some(id) = nicc {
-            Some(NetworkingConfig {
-                endpoints_config: HashMap::from([
-                    (id, EndpointSettings::default())
-                ])
-            })
-        } else {
-            Some(NetworkingConfig {
-                endpoints_config: server.networks.into_iter().map(|network| (format!("ae_nw_{}", network.network_id), EndpointSettings {
-                    ipam_config: Some(EndpointIpamConfig {
-                        ipv4_address: Some(format!("10.133.{}.{}", network.network_subnet, network.server_ip)),
-                        ..Default::default()
-                    }),
-                    ..Default::default()
-                })).collect::<HashMap<_, _>>(),
-            })
-        },
+        networking_config: Some(NetworkingConfig {
+            endpoints_config,
+        }),
         host_config: Some(HostConfig {
             network_mode: Some("none".to_string()),
             restart_policy: Some(RestartPolicy {
                 name: Some(RestartPolicyNameEnum::UNLESS_STOPPED),
                 ..Default::default()
             }),
-            port_bindings: Some(server.ports.into_iter().map(|port| (format!("{}/{}", port.port_port, port.port_protocol.name()), Some(vec![PortBinding {
+            port_bindings: Some(server.ports.into_iter().map(|port| (format!("{}/{}", port.port, port.protocol), Some(vec![PortBinding {
                 host_ip: Some("".to_string()),
-                host_port: Some(format!("{}", port.port_mapped)),
+                host_port: Some(format!("{}", port.mapped)),
             }]))).collect::<HashMap<_, _>>()),
             mounts,
             ..Default::default()
@@ -347,6 +248,10 @@ pub async fn stop_server(id: u32) -> Result<bool, String> {
 }
 
 pub async fn restart_server(id: u32) -> Result<bool, String> {
+    // TODO: change restart_container to stop_container followed by start_container, where
+    // start_container (or this function in between) somehow needs to know if there are changes to
+    // the server that should be used for the start_container call.
+
     let container = get_server(id).await?.ok_or("Server does not exist")?;
     Ok(super::get()?.restart_container(container.id.as_ref().ok_or("Container should have an ID")?, None::<RestartContainerOptions>).await.is_ok())
 }

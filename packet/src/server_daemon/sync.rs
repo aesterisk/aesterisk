@@ -1,3 +1,5 @@
+use std::fmt::Display;
+
 use serde::{Deserialize, Serialize};
 use serde_repr::{Deserialize_repr, Serialize_repr};
 
@@ -120,6 +122,15 @@ pub struct Port {
 pub enum Protocol {
     Tcp = 0,
     Udp = 1,
+}
+
+impl Display for Protocol {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Protocol::Tcp => write!(f, "Tcp"),
+            Protocol::Udp => write!(f, "Udp"),
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug)]
