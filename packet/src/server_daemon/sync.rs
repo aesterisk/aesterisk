@@ -3,7 +3,6 @@ use crate::{Packet, Version, ID};
 #[derive(serde::Serialize, serde::Deserialize, Debug)]
 pub struct Network {
     pub id: u32,
-    pub name: String,
     pub subnet: u8,
 }
 

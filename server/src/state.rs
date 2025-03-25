@@ -288,14 +288,12 @@ impl State {
 
         struct DbNetwork {
             network_id: i32,
-            network_name: String,
             network_local_ip: i32,
         }
 
         let networks = sqlx::query_as!(DbNetwork, r#"
             SELECT
                 networks.network_id,
-                networks.network_name,
                 networks.network_local_ip
             FROM aesterisk.nodes
             LEFT JOIN aesterisk.node_networks
@@ -309,7 +307,6 @@ impl State {
         let sync = SDSyncPacket {
             networks: networks.into_iter().map(|nw| Network {
                 id: nw.network_id as u32,
-                name: nw.network_name,
                 subnet: nw.network_local_ip as u8,
             }).collect(),
         };
