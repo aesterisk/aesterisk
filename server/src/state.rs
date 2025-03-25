@@ -309,6 +309,7 @@ impl State {
                 id: nw.network_id as u32,
                 subnet: nw.network_local_ip as u8,
             }).collect(),
+            servers: vec![],
         };
 
         let client = self.daemon_channel_map.get(&addr).ok_or("Client not found in channel_map")?;
