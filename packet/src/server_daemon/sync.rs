@@ -91,6 +91,17 @@ pub enum EnvType {
     String = 2,
 }
 
+impl From<u8> for EnvType {
+    fn from(value: u8) -> Self {
+        match value {
+            0 => EnvType::Boolean,
+            1 => EnvType::Number,
+            2 => EnvType::String,
+            _ => panic!("Invalid EnvType value: {}", value),
+        }
+    }
+}
+
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Env {
     #[serde(rename = "k")]
@@ -124,11 +135,21 @@ pub enum Protocol {
     Udp = 1,
 }
 
+impl From<u8> for Protocol {
+    fn from(value: u8) -> Self {
+        match value {
+            0 => Protocol::Tcp,
+            1 => Protocol::Udp,
+            _ => panic!("Invalid Protocol value: {}", value),
+        }
+    }
+}
+
 impl Display for Protocol {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Protocol::Tcp => write!(f, "Tcp"),
-            Protocol::Udp => write!(f, "Udp"),
+            Protocol::Tcp => write!(f, "tcp"),
+            Protocol::Udp => write!(f, "udp"),
         }
     }
 }
