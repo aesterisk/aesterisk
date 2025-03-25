@@ -4,7 +4,7 @@ use dashmap::DashMap;
 use futures_channel::mpsc;
 use josekit::jwe::alg::rsaes::RsaesJweEncrypter;
 use openssl::rand::rand_bytes;
-use packet::{events::{EventData, EventType, ListenEvent, NodeStatusEvent}, server_daemon::{auth_response::SDAuthResponsePacket, handshake_request::SDHandshakeRequestPacket, sync::{Network, SDSyncPacket}, listen::SDListenPacket}, server_web::{auth_response::SWAuthResponsePacket, event::SWEventPacket, handshake_request::SWHandshakeRequestPacket}};
+use packet::{events::{EventData, EventType, ListenEvent, NodeStatusEvent}, server_daemon::{auth_response::SDAuthResponsePacket, handshake_request::SDHandshakeRequestPacket, listen::SDListenPacket, sync::{Network, SDSyncPacket}}, server_web::{auth_response::SWAuthResponsePacket, event::SWEventPacket, handshake_request::SWHandshakeRequestPacket}};
 use sqlx::types::Uuid;
 use tokio_tungstenite::tungstenite::Message;
 use tracing::warn;
@@ -303,6 +303,123 @@ impl State {
             WHERE nodes.node_uuid = $1
             AND networks.network_id IS NOT NULL;
         "#, uuid).fetch_all(db::get()?).await.map_err(|_| "failed to fetch network data")?;
+
+        #[derive(sqlx::FromRow)]
+        struct DbServer {
+            server_id: i32,
+            tag_image: String,
+            tag_docker_tags: String,
+            tag_healthcheck_test: Vec<String>,
+            tag_healthcheck_interval: i32,
+            tag_healthcheck_timeout: i32,
+            tag_healthcheck_retries: i32,
+            mount_container_path: Option<Vec<String>>,
+            mount_host_path: Option<Vec<String>>,
+            env_def_key: Option<Vec<String>>,
+            env_def_required: Option<Vec<bool>>,
+            env_def_type: Option<Vec<i16>>,
+            env_def_default_value: Option<Vec<Option<String>>>,
+            env_def_regex: Option<Vec<Option<String>>>,
+            env_def_min: Option<Vec<Option<i32>>>,
+            env_def_max: Option<Vec<Option<i32>>>,
+            env_def_trim: Option<Vec<bool>>,
+            env_key: Option<Vec<String>>,
+            env_value: Option<Vec<String>>,
+            network_id: Option<Vec<i32>>,
+            network_local_ip: Option<Vec<i16>>,
+            port_port: Option<Vec<i32>>,
+            port_protocol: Option<Vec<i16>>,
+            port_mapped: Option<Vec<i32>>,
+        }
+
+        let servers = sqlx::query_as!(DbServer, r#"
+            WITH mounts_cte AS (
+                SELECT
+                    tag_mounts.tag_id,
+                    ARRAY_AGG(mounts.mount_container_path) AS mount_container_path,
+                    ARRAY_AGG(mounts.mount_host_path) AS mount_host_path
+                FROM aesterisk.mounts
+                JOIN aesterisk.tag_mounts ON mounts.mount_id = tag_mounts.mount_id
+                GROUP BY tag_mounts.tag_id
+            ),
+            env_defs_cte AS (
+                SELECT
+                    tag_env_defs.tag_id,
+                    ARRAY_AGG(env_defs.env_def_key) AS env_def_key,
+                    ARRAY_AGG(env_defs.env_def_required) AS env_def_required,
+                    ARRAY_AGG(env_defs.env_def_type) AS env_def_type,
+                    ARRAY_AGG(env_defs.env_def_default_value) AS env_def_default_value,
+                    ARRAY_AGG(env_defs.env_def_regex) AS env_def_regex,
+                    ARRAY_AGG(env_defs.env_def_min) AS env_def_min,
+                    ARRAY_AGG(env_defs.env_def_max) AS env_def_max,
+                    ARRAY_AGG(env_defs.env_def_trim) AS env_def_trim
+                FROM aesterisk.env_defs
+                JOIN aesterisk.tag_env_defs ON env_defs.env_def_id = tag_env_defs.env_def_id
+                GROUP BY tag_env_defs.tag_id
+            ),
+            envs_cte AS (
+                SELECT
+                    server_envs.server_id,
+                    ARRAY_AGG(envs.env_key) AS env_key,
+                    ARRAY_AGG(envs.env_value) AS env_value
+                FROM aesterisk.envs
+                JOIN aesterisk.server_envs ON envs.env_id = server_envs.env_id
+                GROUP BY server_envs.server_id
+            ),
+            networks_cte AS (
+                SELECT
+                    server_networks.server_id,
+                    ARRAY_AGG(server_networks.network_id) AS network_id,
+                    ARRAY_AGG(server_networks.local_ip) AS network_local_ip
+                FROM aesterisk.server_networks
+                GROUP BY server_networks.server_id
+            ),
+            ports_cte AS (
+                SELECT
+                    server_ports.server_id,
+                    ARRAY_AGG(ports.port_port) AS port_port,
+                    ARRAY_AGG(ports.port_protocol) AS port_protocol,
+                    ARRAY_AGG(ports.port_mapped) AS port_mapped
+                FROM aesterisk.ports
+                JOIN aesterisk.server_ports ON ports.port_id = server_ports.port_id
+                GROUP BY server_ports.server_id
+            )
+            SELECT
+                servers.server_id,
+                tags.tag_image,
+                tags.tag_docker_tags,
+                tags.tag_healthcheck_test,
+                tags.tag_healthcheck_interval,
+                tags.tag_healthcheck_timeout,
+                tags.tag_healthcheck_retries,
+                mounts_cte.mount_container_path,
+                mounts_cte.mount_host_path,
+                env_defs_cte.env_def_key,
+                env_defs_cte.env_def_required,
+                env_defs_cte.env_def_type,
+                env_defs_cte.env_def_default_value AS "env_def_default_value: _",
+                env_defs_cte.env_def_regex AS "env_def_regex: _",
+                env_defs_cte.env_def_min AS "env_def_min: _",
+                env_defs_cte.env_def_max AS "env_def_max: _",
+                env_defs_cte.env_def_trim,
+                envs_cte.env_key,
+                envs_cte.env_value,
+                networks_cte.network_id,
+                networks_cte.network_local_ip,
+                ports_cte.port_port,
+                ports_cte.port_protocol,
+                ports_cte.port_mapped
+            FROM aesterisk.nodes
+            LEFT JOIN aesterisk.node_servers ON nodes.node_id = node_servers.node_id
+            LEFT JOIN aesterisk.servers ON node_servers.server_id = servers.server_id
+            LEFT JOIN aesterisk.tags ON servers.server_tag = tags.tag_id
+            LEFT JOIN mounts_cte ON servers.server_tag = mounts_cte.tag_id
+            LEFT JOIN env_defs_cte ON servers.server_tag = env_defs_cte.tag_id
+            LEFT JOIN envs_cte ON servers.server_id = envs_cte.server_id
+            LEFT JOIN networks_cte ON servers.server_id = networks_cte.server_id
+            LEFT JOIN ports_cte ON servers.server_id = ports_cte.server_id
+            WHERE nodes.node_uuid = $1;
+        "#, uuid).fetch_all(db::get()?).await.map_err(|e| format!("Failed to fetch server data: {}", e))?;
 
         let sync = SDSyncPacket {
             networks: networks.into_iter().map(|nw| Network {
