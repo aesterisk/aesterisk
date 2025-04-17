@@ -19,6 +19,8 @@ import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, Command
 import { cn } from "@/lib/utils";
 import { columns } from "./columns";
 import { insertServer } from "./actions";
+import { EventOf, EventType } from "@/packets/events";
+import useEvent from "@/hooks/event";
 
 export default function Client({ nodes, servers, teamID }: {
 	nodes: Node[];
@@ -27,10 +29,34 @@ export default function Client({ nodes, servers, teamID }: {
 }) {
 	const [allServers, setAllServers] = useState(servers);
 
+	const [serverData, setServerData] = useState(allServers);
+
+	const nodeUuids = useMemo(() => nodes.map((node) => node.uuid), [nodes]);
+
+	const updateStatus = useCallback((event: EventOf<EventType.ServerStatus>) => {
+		setServerData((data) => data.map((server) => {
+			const status = server.node.uuid === event.daemon
+				? event.event.ServerStatus.statuses.find((s) => s.server === server.id)!
+				: null;
+
+			if(!status) return server;
+
+			return {
+				...server,
+				status: status.status,
+				memory: status.memory,
+				cpu: status.cpu,
+				storage: status.storage,
+			};
+		}));
+	}, []);
+
+	useEvent(EventType.ServerStatus, updateStatus, nodeUuids);
+
 	const FormSchema = z.object({
 		name: z.string().trim().min(1),
+		tag: z.preprocess((s) => parseInt(z.string().parse(s), 10), z.number().int().min(1)),
 		node: z.number().refine((node) => nodes.some((n) => n.id === node)),
-		tag: z.number().int().min(1),
 	});
 
 	const form = useForm<z.infer<typeof FormSchema>>({
@@ -65,7 +91,7 @@ export default function Client({ nodes, servers, teamID }: {
 	return (
 		<DataList
 			columns={columns}
-			data={allServers}
+			data={serverData}
 			actionLabel={
 				(
 					<>

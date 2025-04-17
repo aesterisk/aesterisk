@@ -1,5 +1,6 @@
 export enum EventType {
 	NodeStatus = "NodeStatus",
+	ServerStatus = "ServerStatus",
 }
 
 export type NodeStatusEvent = {
@@ -13,6 +14,25 @@ export type NodeStatusEvent = {
 	};
 };
 
+export type ServerStatusEvent = {
+	statuses: {
+		server: number;
+		status: "healthy" | "starting" | "restarting" | "stopping" | "offline" | "unhealthy";
+		memory?: {
+			used: number;
+			total: number;
+		};
+		cpu?: {
+			used: number;
+			total: number;
+		};
+		storage?: {
+			used: number;
+			total: number;
+		};
+	}[];
+};
+
 export type ListenEvent = {
 	event: EventType;
 	daemons: string[];
@@ -20,6 +40,7 @@ export type ListenEvent = {
 
 interface EventDataPayloads {
 	NodeStatus: NodeStatusEvent;
+	ServerStatus: ServerStatusEvent;
 }
 
 export type EventDataOf<K extends keyof EventDataPayloads> = {

@@ -9,11 +9,11 @@ use tracing::{error, warn};
 
 use crate::{encryption, LISTENS, SENDER};
 
-/// Runs the status service, sending status information to the clients
+/// Runs the node status service, sending status information to the clients
 pub async fn run(token: CancellationToken) -> Result<(), String> {
     select! {
         _ = token.cancelled() => {
-            warn!("Stopping status service");
+            warn!("Stopping node status service");
             Ok(())
         },
         res = send_loop() => {

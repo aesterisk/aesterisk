@@ -4,7 +4,7 @@ use uuid::Uuid;
 #[derive(Debug, Serialize, Deserialize, Hash, PartialEq, Eq, Clone, Copy)]
 pub enum EventType {
     NodeStatus,
-    OtherEvent,
+    ServerStatus,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -23,21 +23,53 @@ pub struct NodeStats {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct OtherEvent {
-    pub num: u32,
+pub struct ServerStatusEvent {
+    pub statuses: Vec<ServerStatus>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ServerStatus {
+    pub server: u32,
+    pub status: ServerStatusType,
+    pub memory: Option<Stats>,
+    pub cpu: Option<Stats>,
+    pub storage: Option<Stats>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "lowercase")]
+pub enum ServerStatusType {
+    /// Server is running (and healthy if healthcheck exists)
+    Healthy,
+    /// Server is starting 
+    Starting,
+    // Server is restarting
+    Restarting,
+    /// Server is stopping/removing
+    Stopping,
+    /// Server is not running
+    Offline,
+    /// Server is running but is unhealthy
+    Unhealthy,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct Stats {
+    pub used: f64,
+    pub total: f64,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub enum EventData {
     NodeStatus(NodeStatusEvent),
-    OtherEvent(OtherEvent),
+    ServerStatus(ServerStatusEvent),
 }
 
 impl EventData {
     pub fn event_type(&self) -> EventType {
         match self {
             EventData::NodeStatus(_) => EventType::NodeStatus,
-            EventData::OtherEvent(_) => EventType::OtherEvent,
+            EventData::ServerStatus(_) => EventType::ServerStatus,
         }
     }
 }
