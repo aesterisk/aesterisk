@@ -6,7 +6,7 @@ import { NeonQueryFunction, neon, neonConfig } from "@neondatabase/serverless";
 let neonSql: NeonQueryFunction<false, false> | null = null;
 
 if(process.env.VERCEL_ENV === "development") {
-	neonConfig.fetchEndpoint = "http://db.localtest.me:54331/sql";
+	neonConfig.fetchEndpoint = "https://db.aesterisk.io:54331/sql";
 
 	neonSql = neon(process.env.POSTGRES_URL!);
 }
