@@ -17,7 +17,7 @@ export type NodeStatusEvent = {
 export type ServerStatusEvent = {
 	statuses: {
 		server: number;
-		status: "healthy" | "starting" | "restarting" | "stopping" | "offline" | "unhealthy";
+		status: "healthy" | "starting" | "restarting" | "stopping" | "stopped" | "unhealthy";
 		memory?: {
 			used: number;
 			total: number;

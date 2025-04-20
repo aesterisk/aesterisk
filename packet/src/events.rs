@@ -48,7 +48,7 @@ pub enum ServerStatusType {
     /// Server is stopping/removing
     Stopping,
     /// Server is not running
-    Offline,
+    Stopped,
     /// Server is running but is unhealthy
     Unhealthy,
 }

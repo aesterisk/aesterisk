@@ -1,13 +1,13 @@
 use std::{collections::HashMap, fs::create_dir_all};
-use bollard::{container::{Config, CreateContainerOptions, InspectContainerOptions, ListContainersOptions, NetworkingConfig, RemoveContainerOptions, RestartContainerOptions, StartContainerOptions, StatsOptions, StopContainerOptions}, image::CreateImageOptions, secret::{ContainerStateStatusEnum, ContainerSummary, EndpointIpamConfig, EndpointSettings, HealthConfig, HealthStatusEnum, HostConfig, Mount, MountBindOptions, MountTypeEnum, PortBinding, RestartPolicy, RestartPolicyNameEnum}};
+use bollard::{container::{Config, CreateContainerOptions, InspectContainerOptions, ListContainersOptions, MemoryStatsStats, NetworkingConfig, RemoveContainerOptions, RestartContainerOptions, StartContainerOptions, StatsOptions, StopContainerOptions}, image::CreateImageOptions, secret::{ContainerStateStatusEnum, ContainerSummary, EndpointIpamConfig, EndpointSettings, HealthConfig, HealthStatusEnum, HostConfig, Mount, MountBindOptions, MountTypeEnum, PortBinding, RestartPolicy, RestartPolicyNameEnum}};
 use camino::{Utf8Component, Utf8Path, Utf8PathBuf};
 use futures_util::StreamExt;
 use packet::{daemon_server::event::DSEventPacket, events::{EventData, ServerStatus, ServerStatusEvent, ServerStatusType, Stats}, server_daemon::sync::{EnvType, Server}};
 use regex::Regex;
 use tokio_tungstenite::tungstenite::Message;
-use tracing::{debug, error};
+use tracing::{debug, error, warn};
 
-use crate::{docker::{self, network}, encryption, SENDER};
+use crate::{docker::{self, network}, encryption, services::{self, server_status}, SENDER};
 
 pub async fn create_server(server: Server) -> Result<String, String> {
     let envs = server.envs.into_iter().map(|e| (e.key.clone(), e)).collect::<HashMap<_, _>>();
@@ -220,110 +220,16 @@ pub async fn create_server(server: Server) -> Result<String, String> {
 
     debug!("Started container");
 
-    let id_clone = id.clone();
-    let server_id = server.id;
+    debug!("Starting streaming server stats...");
+
     tokio::spawn(async move {
-        let send_stat = async |id: u32, docker_id: &str, stat: bollard::container::Stats| -> Result<(), String> {
-            let server = super::get()?.inspect_container(docker_id, Some(InspectContainerOptions {
-                size: true,
-            })).await.map_err(|e| format!("could not inspect container: {}", e))?;
-
-            const GB: f64 = 1_073_741_824.0;
-
-            let status = match server.state.as_ref().ok_or("no state")?.status.ok_or("no status")? {
-                ContainerStateStatusEnum::PAUSED => ServerStatusType::Starting,
-                ContainerStateStatusEnum::RESTARTING => ServerStatusType::Restarting,
-                ContainerStateStatusEnum::REMOVING => ServerStatusType::Stopping,
-                ContainerStateStatusEnum::CREATED | ContainerStateStatusEnum::RUNNING => match server.state.as_ref().ok_or("no state")?.health.as_ref().ok_or("no health")?.status.ok_or("no health.status")? {
-                    HealthStatusEnum::NONE => ServerStatusType::Healthy,
-                    HealthStatusEnum::EMPTY => ServerStatusType::Healthy,
-                    HealthStatusEnum::HEALTHY => ServerStatusType::Healthy,
-                    HealthStatusEnum::STARTING => ServerStatusType::Starting,
-                    HealthStatusEnum::UNHEALTHY => ServerStatusType::Unhealthy,
-                },
-                ContainerStateStatusEnum::EXITED | ContainerStateStatusEnum::DEAD | ContainerStateStatusEnum::EMPTY => ServerStatusType::Offline,
-            };
-
-            let server_status = ServerStatus {
-                server: id,
-                cpu: match status {
-                    ServerStatusType::Healthy | ServerStatusType::Starting | ServerStatusType::Stopping => Some(Stats {
-                        used: stat.cpu_stats.cpu_usage.total_usage as f64,
-                        total: stat.cpu_stats.online_cpus.ok_or("no cpu_stats.online_cpus")? as f64,
-                    }),
-                    _ => None,
-                },
-                memory: match status {
-                    ServerStatusType::Healthy | ServerStatusType::Starting | ServerStatusType::Stopping => Some(Stats {
-                        used: stat.memory_stats.usage.ok_or("no memory_stats.usage")? as f64 / GB,
-                        total: stat.memory_stats.limit.ok_or("no memory_stats.usage")? as f64 / GB,
-                    }),
-                    _ => None,
-                },
-                storage: Some(Stats {
-                    used: server.size_root_fs.ok_or("no size_root_fs")? as f64 / GB,
-                    total: 100.0,
-                }),
-                status,
-            };
-
-            if SENDER.lock().await.is_some() {
-                let packet = DSEventPacket {
-                    data: EventData::ServerStatus(ServerStatusEvent {
-                        statuses: vec![server_status],
-                    }),
-                };
-
-                let packet = match packet.to_packet() {
-                    Ok(packet) => packet,
-                    Err(e) => {
-                        return Err(format!("Error creating packet: {}", e));
-                    }
-                };
-
-                let packet = match encryption::encrypt_packet(packet) {
-                    Ok(packet) => packet,
-                    Err(e) => {
-                        return Err(format!("Error encrypting packet: {}", e));
-                    }
-                };
-
-                if let Some(tx) = SENDER.lock().await.as_ref() {
-                    match tx.unbounded_send(Message::Text(packet)) {
-                        Ok(_) => (),
-                        Err(e) => {
-                            return Err(format!("Could not send packet: {}", e));
-                        }
-                    }
-                }
-            }
-
-            Ok(())
+        match server_status::start(server.id).await {
+            Ok(_) => (),
+            Err(e) => error!("Error in server stats service: {}", e),
         };
-
-        let run = async || -> Result<(), String> {
-            let mut stream = super::get()?.stats(&id_clone, Some(StatsOptions {
-                stream: true,
-                one_shot: false,
-            }));
-
-            while let Some(stat) = stream.next().await {
-                match stat {
-                    Ok(stat) => {
-                        send_stat(server_id, &id_clone, stat).await?;
-                    },
-                    Err(e) => return Err(format!("could not get stat: {}", e))
-                }
-            }
-
-            Ok(())
-        };
-
-        match run().await {
-            Ok(()) => (),
-            Err(e) => error!("Failed to poll server resource usage: {}", e),
-        }
     });
+
+    debug!("Started server stats service");
 
     Ok(id)
 }

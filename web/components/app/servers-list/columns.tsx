@@ -91,7 +91,7 @@ export const columns: ColumnDef<ServerData>[] = [
 		id: "memory",
 		header: () => <span className="w-min h-min select">{ "Memory" }</span>,
 		cell: ({ row }) => {
-			if(!row.original.memory || !row.original.memory.total || !row.original.memory.used) {
+			if(!row.original.memory) {
 				return (
 					<Skeleton className="h-2 w-24" />
 				);
@@ -111,7 +111,7 @@ export const columns: ColumnDef<ServerData>[] = [
 		id: "cpu",
 		header: () => <span className="w-min h-min select">{ "CPU" }</span>,
 		cell: ({ row }) => {
-			if(!row.original.cpu || !row.original.cpu.total || !row.original.cpu.used) {
+			if(!row.original.cpu) {
 				return (
 					<Skeleton className="h-2 w-24" />
 				);
@@ -131,7 +131,7 @@ export const columns: ColumnDef<ServerData>[] = [
 		id: "storage",
 		header: () => <span className="w-min h-min select">{ "Storage" }</span>,
 		cell: ({ row }) => {
-			if(!row.original.storage || !row.original.storage.total || !row.original.storage.used) {
+			if(!row.original.storage) {
 				return (
 					<Skeleton className="h-2 w-24" />
 				);

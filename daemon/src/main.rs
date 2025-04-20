@@ -34,6 +34,7 @@ enum ExitCode {
     JoinError = 3,
     SignalError = 4,
     DockerError = 5,
+    ServiceError = 6,
 }
 
 impl From<ExitCode> for i32 {
@@ -135,7 +136,13 @@ async fn main() {
 
     let token = CancellationToken::new();
 
-    let handles = services::start(token.clone());
+    let handles = match services::start(token.clone()) {
+        Ok(handles) => handles,
+        Err(e) => {
+            error!("Error starting services: {}", e);
+            exit(ExitCode::ServiceError);
+        }
+    };
 
     match signal::ctrl_c().await {
         Ok(()) => {
