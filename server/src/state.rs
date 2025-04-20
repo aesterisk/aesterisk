@@ -336,8 +336,8 @@ impl State {
             WITH mounts_cte AS (
                 SELECT
                     tag_mounts.tag_id,
-                    ARRAY_AGG(mounts.mount_container_path) AS mount_container_path,
-                    ARRAY_AGG(mounts.mount_host_path) AS mount_host_path
+                    ARRAY_AGG(mounts.mount_container_path ORDER BY mounts.mount_id) AS mount_container_path,
+                    ARRAY_AGG(mounts.mount_host_path ORDER BY mounts.mount_id) AS mount_host_path
                 FROM aesterisk.mounts
                 JOIN aesterisk.tag_mounts ON mounts.mount_id = tag_mounts.mount_id
                 GROUP BY tag_mounts.tag_id
@@ -345,14 +345,14 @@ impl State {
             env_defs_cte AS (
                 SELECT
                     tag_env_defs.tag_id,
-                    ARRAY_AGG(env_defs.env_def_key) AS env_def_key,
-                    ARRAY_AGG(env_defs.env_def_required) AS env_def_required,
-                    ARRAY_AGG(env_defs.env_def_type) AS env_def_type,
-                    ARRAY_AGG(env_defs.env_def_default_value) AS env_def_default_value,
-                    ARRAY_AGG(env_defs.env_def_regex) AS env_def_regex,
-                    ARRAY_AGG(env_defs.env_def_min) AS env_def_min,
-                    ARRAY_AGG(env_defs.env_def_max) AS env_def_max,
-                    ARRAY_AGG(env_defs.env_def_trim) AS env_def_trim
+                    ARRAY_AGG(env_defs.env_def_key ORDER BY env_defs.env_def_id) AS env_def_key,
+                    ARRAY_AGG(env_defs.env_def_required ORDER BY env_defs.env_def_id) AS env_def_required,
+                    ARRAY_AGG(env_defs.env_def_type ORDER BY env_defs.env_def_id) AS env_def_type,
+                    ARRAY_AGG(env_defs.env_def_default_value ORDER BY env_defs.env_def_id) AS env_def_default_value,
+                    ARRAY_AGG(env_defs.env_def_regex ORDER BY env_defs.env_def_id) AS env_def_regex,
+                    ARRAY_AGG(env_defs.env_def_min ORDER BY env_defs.env_def_id) AS env_def_min,
+                    ARRAY_AGG(env_defs.env_def_max ORDER BY env_defs.env_def_id) AS env_def_max,
+                    ARRAY_AGG(env_defs.env_def_trim ORDER BY env_defs.env_def_id) AS env_def_trim
                 FROM aesterisk.env_defs
                 JOIN aesterisk.tag_env_defs ON env_defs.env_def_id = tag_env_defs.env_def_id
                 GROUP BY tag_env_defs.tag_id
@@ -360,8 +360,8 @@ impl State {
             envs_cte AS (
                 SELECT
                     server_envs.server_id,
-                    ARRAY_AGG(envs.env_key) AS env_key,
-                    ARRAY_AGG(envs.env_value) AS env_value
+                    ARRAY_AGG(envs.env_key ORDER BY envs.env_id) AS env_key,
+                    ARRAY_AGG(envs.env_value ORDER BY envs.env_id) AS env_value
                 FROM aesterisk.envs
                 JOIN aesterisk.server_envs ON envs.env_id = server_envs.env_id
                 GROUP BY server_envs.server_id
@@ -369,17 +369,17 @@ impl State {
             networks_cte AS (
                 SELECT
                     server_networks.server_id,
-                    ARRAY_AGG(server_networks.network_id) AS network_id,
-                    ARRAY_AGG(server_networks.local_ip) AS network_local_ip
+                    ARRAY_AGG(server_networks.network_id ORDER BY server_networks.network_id) AS network_id,
+                    ARRAY_AGG(server_networks.local_ip ORDER BY server_networks.network_id) AS network_local_ip
                 FROM aesterisk.server_networks
                 GROUP BY server_networks.server_id
             ),
             ports_cte AS (
                 SELECT
                     server_ports.server_id,
-                    ARRAY_AGG(ports.port_port) AS port_port,
-                    ARRAY_AGG(ports.port_protocol) AS port_protocol,
-                    ARRAY_AGG(ports.port_mapped) AS port_mapped
+                    ARRAY_AGG(ports.port_port ORDER BY ports.port_id) AS port_port,
+                    ARRAY_AGG(ports.port_protocol ORDER BY ports.port_id) AS port_protocol,
+                    ARRAY_AGG(ports.port_mapped ORDER BY ports.port_id) AS port_mapped
                 FROM aesterisk.ports
                 JOIN aesterisk.server_ports ON ports.port_id = server_ports.port_id
                 GROUP BY server_ports.server_id
