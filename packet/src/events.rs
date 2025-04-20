@@ -24,11 +24,6 @@ pub struct NodeStats {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ServerStatusEvent {
-    pub statuses: Vec<ServerStatus>,
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct ServerStatus {
     pub server: u32,
     pub status: ServerStatusType,
     pub memory: Option<Stats>,

@@ -3,7 +3,7 @@ use std::sync::Arc;
 use bollard::{container::{InspectContainerOptions, MemoryStatsStats, StatsOptions}, secret::{ContainerStateStatusEnum, HealthStatusEnum}};
 use futures_util::StreamExt;
 use lazy_static::lazy_static;
-use packet::{daemon_server::event::DSEventPacket, events::{EventData, ServerStatus, ServerStatusEvent, ServerStatusType, Stats}};
+use packet::{daemon_server::event::DSEventPacket, events::{EventData, ServerStatusEvent, ServerStatusType, Stats}};
 use tokio::{select, sync::Mutex};
 use tokio_tungstenite::tungstenite::Message;
 use tokio_util::sync::CancellationToken;
@@ -60,7 +60,7 @@ async fn send_stat(id: u32, stat: bollard::container::Stats) -> Result<(), Strin
         ContainerStateStatusEnum::EXITED | ContainerStateStatusEnum::DEAD | ContainerStateStatusEnum::EMPTY => ServerStatusType::Stopped,
     };
 
-    let server_status = ServerStatus {
+    let server_status = ServerStatusEvent {
         server: id,
         cpu: match status {
             ServerStatusType::Healthy | ServerStatusType::Starting | ServerStatusType::Stopping => Some(Stats {
@@ -88,9 +88,7 @@ async fn send_stat(id: u32, stat: bollard::container::Stats) -> Result<(), Strin
 
     if SENDER.lock().await.is_some() {
         let packet = DSEventPacket {
-            data: EventData::ServerStatus(ServerStatusEvent {
-                statuses: vec![server_status],
-            }),
+            data: EventData::ServerStatus(server_status),
         };
 
         let packet = match packet.to_packet() {
@@ -161,6 +159,8 @@ pub async fn start(id: u32) -> Result<(), String> {
             }
         }
     }
+
+    debug!("Exiting server status service for server {}", id);
 
     Ok(())
 }

@@ -35,11 +35,8 @@ export default function Client({ nodes, servers, teamID }: {
 
 	const updateStatus = useCallback((event: EventOf<EventType.ServerStatus>) => {
 		setServerData((data) => data.map((server) => {
-			const status = server.node.uuid === event.daemon
-				? event.event.ServerStatus.statuses.find((s) => s.server === server.id)!
-				: null;
-
-			if(!status) return server;
+			const status = event.event.ServerStatus;
+			if(status.server !== server.id) return server;
 
 			return {
 				...server,

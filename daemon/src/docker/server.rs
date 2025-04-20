@@ -1,13 +1,12 @@
 use std::{collections::HashMap, fs::create_dir_all};
-use bollard::{container::{Config, CreateContainerOptions, InspectContainerOptions, ListContainersOptions, MemoryStatsStats, NetworkingConfig, RemoveContainerOptions, RestartContainerOptions, StartContainerOptions, StatsOptions, StopContainerOptions}, image::CreateImageOptions, secret::{ContainerStateStatusEnum, ContainerSummary, EndpointIpamConfig, EndpointSettings, HealthConfig, HealthStatusEnum, HostConfig, Mount, MountBindOptions, MountTypeEnum, PortBinding, RestartPolicy, RestartPolicyNameEnum}};
+use bollard::{container::{Config, CreateContainerOptions, ListContainersOptions, NetworkingConfig, RemoveContainerOptions, RestartContainerOptions, StartContainerOptions, StopContainerOptions}, image::CreateImageOptions, secret::{ContainerSummary, EndpointIpamConfig, EndpointSettings, HealthConfig, HostConfig, Mount, MountBindOptions, MountTypeEnum, PortBinding, RestartPolicy, RestartPolicyNameEnum}};
 use camino::{Utf8Component, Utf8Path, Utf8PathBuf};
 use futures_util::StreamExt;
-use packet::{daemon_server::event::DSEventPacket, events::{EventData, ServerStatus, ServerStatusEvent, ServerStatusType, Stats}, server_daemon::sync::{EnvType, Server}};
+use packet::server_daemon::sync::{EnvType, Server};
 use regex::Regex;
-use tokio_tungstenite::tungstenite::Message;
-use tracing::{debug, error, warn};
+use tracing::debug;
 
-use crate::{docker::{self, network}, encryption, services::{self, server_status}, SENDER};
+use crate::docker::{self, network};
 
 pub async fn create_server(server: Server) -> Result<String, String> {
     let envs = server.envs.into_iter().map(|e| (e.key.clone(), e)).collect::<HashMap<_, _>>();
@@ -219,17 +218,6 @@ pub async fn create_server(server: Server) -> Result<String, String> {
     super::get()?.start_container(&id, None::<StartContainerOptions<String>>).await.map_err(|e| format!("Could not start Docker container: {}", e))?;
 
     debug!("Started container");
-
-    debug!("Starting streaming server stats...");
-
-    tokio::spawn(async move {
-        match server_status::start(server.id).await {
-            Ok(_) => (),
-            Err(e) => error!("Error in server stats service: {}", e),
-        };
-    });
-
-    debug!("Started server stats service");
 
     Ok(id)
 }

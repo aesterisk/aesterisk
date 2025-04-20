@@ -15,22 +15,20 @@ export type NodeStatusEvent = {
 };
 
 export type ServerStatusEvent = {
-	statuses: {
-		server: number;
-		status: "healthy" | "starting" | "restarting" | "stopping" | "stopped" | "unhealthy";
-		memory?: {
-			used: number;
-			total: number;
-		};
-		cpu?: {
-			used: number;
-			total: number;
-		};
-		storage?: {
-			used: number;
-			total: number;
-		};
-	}[];
+	server: number;
+	status: "healthy" | "starting" | "restarting" | "stopping" | "stopped" | "unhealthy";
+	memory?: {
+		used: number;
+		total: number;
+	};
+	cpu?: {
+		used: number;
+		total: number;
+	};
+	storage?: {
+		used: number;
+		total: number;
+	};
 };
 
 export type ListenEvent = {
