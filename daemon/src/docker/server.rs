@@ -180,7 +180,7 @@ pub async fn create_server(server: Server) -> Result<String, String> {
         env: Some(envs.values().map(|env| format!("{}={}", env.key, env.value)).collect()),
         image: Some(format!("{}:{}", server.tag.image, server.tag.docker_tag)),
         labels: Some(HashMap::from([
-            ("io.aesterisk.version".to_string(), "0".to_string()),
+            ("io.aesterisk.server.version".to_string(), "0".to_string()),
             ("io.aesterisk.server.id".to_string(), format!("{}", server.id)),
         ])),
         healthcheck: Some(HealthConfig {
@@ -227,7 +227,7 @@ pub async fn get_servers() -> Result<Vec<ContainerSummary>, String> {
         all: true,
         filters: HashMap::from([
             ("label".to_string(), vec![
-                "io.aesterisk.version=0".to_string()
+                "io.aesterisk.server.version=0".to_string()
             ]),
         ]),
         ..Default::default()
@@ -242,7 +242,7 @@ pub async fn get_server(id: u32) -> Result<Option<ContainerSummary>, String> {
         filters: HashMap::from([
             ("label".to_string(), vec![
                 format!("io.aesterisk.server.id={}", id),
-                "io.aesterisk.version=0".to_string()
+                "io.aesterisk.server.version=0".to_string()
             ]),
         ]),
         ..Default::default()
