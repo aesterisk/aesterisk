@@ -41,6 +41,8 @@ pub struct Daemon {
     pub public_key: String,
     /// Path to the daemon's private key
     pub private_key: String,
+    /// Path to the daemon's data folder
+    pub data_folder: String,
 }
 
 impl Default for Daemon {
@@ -49,6 +51,7 @@ impl Default for Daemon {
             uuid: "".to_string(),
             public_key: "daemon.pub".to_string(),
             private_key: "daemon.pem".to_string(),
+            data_folder: "/var/aesterisk/data".to_string(),
         }
     }
 }
@@ -59,6 +62,7 @@ impl ConfigOverride for Daemon {
             uuid: args.daemon_uuid.take().unwrap_or(self.uuid),
             public_key: args.daemon_public_key.take().unwrap_or(self.public_key),
             private_key: args.daemon_private_key.take().unwrap_or(self.private_key),
+            data_folder: args.daemon_data_folder.take().unwrap_or(self.data_folder),
         }
     }
 }
