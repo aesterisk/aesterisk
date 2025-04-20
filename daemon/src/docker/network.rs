@@ -43,7 +43,7 @@ pub async fn get_networks() -> Result<Vec<Network>, String> {
 
     networks.into_iter().map(|nw| Ok(Network {
         id: nw.labels.ok_or("no labels")?.get("io.aesterisk.network.id").ok_or("no id")?.parse().map_err(|e| format!("Could not parse network ID: {}", e))?,
-        subnet: nw.ipam.ok_or("no ipam")?.config.ok_or("no ipam config")?.into_iter().next().ok_or("no ipam config[0]")?.subnet.ok_or("no subnet")?.split('.').skip(2).next().ok_or("failed to parse subnet from string")?.parse().map_err(|e| format!("Could not parse network subnet: {}", e))?,
+        subnet: nw.ipam.ok_or("no ipam")?.config.ok_or("no ipam config")?.into_iter().next().ok_or("no ipam config[0]")?.subnet.ok_or("no subnet")?.split('.').nth(2).ok_or("failed to parse subnet from string")?.parse().map_err(|e| format!("Could not parse network subnet: {}", e))?,
     })).collect()
 }
 
