@@ -36,11 +36,11 @@ pub async fn create_server(server: Server) -> Result<String, String> {
                             }
 
                             if env_def.max.is_some() && num > env_def.max.ok_or("env should have max")? {
-                                return Err(format!("  Invalid value for {}: '{}' is above the maximum value", env_def.key, env.value));
+                                return Err(format!("Invalid value for {}: '{}' is above the maximum value", env_def.key, env.value));
                             }
                         },
                         Err(_) => {
-                            return Err(format!("  Invalid value for {}: '{}' is not a number", env_def.key, env.value));
+                            return Err(format!("Invalid value for {}: '{}' is not a number", env_def.key, env.value));
                         }
                     };
                 },
@@ -54,18 +54,18 @@ pub async fn create_server(server: Server) -> Result<String, String> {
                     if env_def.regex.is_some() {
                         let re = Regex::new(env_def.regex.as_ref().ok_or("env should have regex")?).map_err(|_| "invalid regex")?;
                         if !re.is_match(value) {
-                            return Err(format!("  Invalid value for {}: '{}' does not match regex", env_def.key, env.value));
+                            return Err(format!("Invalid value for {}: '{}' does not match regex", env_def.key, env.value));
                         }
                     }
 
                     let len = value.len();
 
                     if env_def.min.is_some() && len < env_def.min.ok_or("env should have min")? as usize {
-                        return Err(format!("  Invalid value for {}: '{}' is below the minimum length", env_def.key, env.value));
+                        return Err(format!("Invalid value for {}: '{}' is below the minimum length", env_def.key, env.value));
                     }
 
                     if env_def.max.is_some() && len > env_def.max.ok_or("env should have max")? as usize {
-                        return Err(format!("  Invalid value for {}: '{}' is above the maximum length", env_def.key, env.value));
+                        return Err(format!("Invalid value for {}: '{}' is above the maximum length", env_def.key, env.value));
                     }
                 }
             };
