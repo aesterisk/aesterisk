@@ -76,7 +76,9 @@ export default function Client({ nodes, servers, teamID }: {
 	const [nodeSelectOpen, setNodeSelectOpen] = useState(false);
 
 	const onSubmit = useCallback(async(data: z.infer<typeof FormSchema>) => {
-		const node = nodes.find((n) => n.id === data.node)!;
+		const node = nodes.find((n) => n.id === data.node);
+		if(!node) return;
+
 		const server = await insertServer(teamID, data.node, data.name, data.tag);
 		setAllServers((s) => s.concat({
 			...server,
