@@ -175,7 +175,7 @@ export default function Client({ nodes, servers, teamID }: {
 			</FormControl>
 			<FormMessage />
 		</FormItem>
-	), [nodeSelectOpen, nodes]);
+	), [nodeSelectOpen, nodes, onSelect]);
 
 	return (
 		<DataList
