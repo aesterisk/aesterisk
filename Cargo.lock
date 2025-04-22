@@ -29,6 +29,7 @@ dependencies = [
  "futures-util",
  "josekit",
  "lazy_static",
+ "regex",
  "serde",
  "serde_json",
  "sysinfo",

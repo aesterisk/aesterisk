@@ -94,7 +94,11 @@ export const SocketProvider = ({ children, userID, publicKey, privateKey }: Para
 				sendConnectedToast.current = true;
 			}
 
-			const ws = new WebSocket("wss://web.server.aesterisk.io");
+			if(!process.env.NEXT_PUBLIC_SERVER_WEBSOCKET_URL) {
+				throw new Error("NEXT_PUBLIC_SERVER_WEBSOCKET_URL is not defined");
+			}
+
+			const ws = new WebSocket(process.env.NEXT_PUBLIC_SERVER_WEBSOCKET_URL);
 
 			ws.onopen = async() => {
 				ws.send(await encryptPacket(WSAuthPacket({

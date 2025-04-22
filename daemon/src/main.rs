@@ -34,6 +34,7 @@ enum ExitCode {
     JoinError = 3,
     SignalError = 4,
     DockerError = 5,
+    ServiceError = 6,
 }
 
 impl From<ExitCode> for i32 {
@@ -63,7 +64,7 @@ const AESTERISK_LOGO_VERSION: &str = concat!(logo_str!(), "\n                   
 #[derive(Parser)]
 #[command(version = concat!("v", env!("CARGO_PKG_VERSION")), name = AESTERISK_LOGO_VERSION, about = AESTERISK_LOGO, long_about = None)]
 pub struct Cli {
-    #[clap(short, long)]
+    #[clap(short = 'c', long)]
     config: Option<String>,
 
     #[clap(short = 'u', long)]
@@ -74,6 +75,9 @@ pub struct Cli {
 
     #[clap(short = 'p', long)]
     daemon_private_key: Option<String>,
+
+    #[clap(short = 'd', long)]
+    daemon_data_folder: Option<String>,
 
     #[clap(short = 's', long)]
     server_url: Option<String>,
@@ -135,7 +139,13 @@ async fn main() {
 
     let token = CancellationToken::new();
 
-    let handles = services::start(token.clone());
+    let handles = match services::start(token.clone()) {
+        Ok(handles) => handles,
+        Err(e) => {
+            error!("Error starting services: {}", e);
+            exit(ExitCode::ServiceError);
+        }
+    };
 
     match signal::ctrl_c().await {
         Ok(()) => {

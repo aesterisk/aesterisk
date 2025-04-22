@@ -4,7 +4,7 @@ use dashmap::DashMap;
 use futures_channel::mpsc;
 use josekit::jwe::alg::rsaes::RsaesJweEncrypter;
 use openssl::rand::rand_bytes;
-use packet::{events::{EventData, EventType, ListenEvent, NodeStatusEvent}, server_daemon::{auth_response::SDAuthResponsePacket, handshake_request::SDHandshakeRequestPacket, sync::{Network, SDSyncPacket}, listen::SDListenPacket}, server_web::{auth_response::SWAuthResponsePacket, event::SWEventPacket, handshake_request::SWHandshakeRequestPacket}};
+use packet::{events::{EventData, EventType, ListenEvent, NodeStatusEvent}, server_daemon::{auth_response::SDAuthResponsePacket, handshake_request::SDHandshakeRequestPacket, listen::SDListenPacket, sync::{Env, EnvDef, EnvType, Healthcheck, Mount, Network, Port, Protocol, SDSyncPacket, Server, ServerNetwork, Tag}}, server_web::{auth_response::SWAuthResponsePacket, event::SWEventPacket, handshake_request::SWHandshakeRequestPacket}};
 use sqlx::types::Uuid;
 use tokio_tungstenite::tungstenite::Message;
 use tracing::warn;
@@ -288,14 +288,12 @@ impl State {
 
         struct DbNetwork {
             network_id: i32,
-            network_name: String,
             network_local_ip: i32,
         }
 
         let networks = sqlx::query_as!(DbNetwork, r#"
             SELECT
                 networks.network_id,
-                networks.network_name,
                 networks.network_local_ip
             FROM aesterisk.nodes
             LEFT JOIN aesterisk.node_networks
@@ -306,12 +304,179 @@ impl State {
             AND networks.network_id IS NOT NULL;
         "#, uuid).fetch_all(db::get()?).await.map_err(|_| "failed to fetch network data")?;
 
+        #[derive(sqlx::FromRow)]
+        struct DbServer {
+            server_id: i32,
+            tag_image: String,
+            tag_docker_tags: String,
+            tag_healthcheck_test: Vec<String>,
+            tag_healthcheck_interval: i32,
+            tag_healthcheck_timeout: i32,
+            tag_healthcheck_retries: i32,
+            mount_container_path: Option<Vec<String>>,
+            mount_host_path: Option<Vec<String>>,
+            env_def_key: Option<Vec<String>>,
+            env_def_required: Option<Vec<bool>>,
+            env_def_type: Option<Vec<i16>>,
+            env_def_default_value: Option<Vec<Option<String>>>,
+            env_def_regex: Option<Vec<Option<String>>>,
+            env_def_min: Option<Vec<Option<i32>>>,
+            env_def_max: Option<Vec<Option<i32>>>,
+            env_def_trim: Option<Vec<bool>>,
+            env_key: Option<Vec<String>>,
+            env_value: Option<Vec<String>>,
+            network_id: Option<Vec<i32>>,
+            network_local_ip: Option<Vec<i16>>,
+            port_port: Option<Vec<i32>>,
+            port_protocol: Option<Vec<i16>>,
+            port_mapped: Option<Vec<i32>>,
+        }
+
+        let servers = sqlx::query_as!(DbServer, r#"
+            WITH mounts_cte AS (
+                SELECT
+                    tag_mounts.tag_id,
+                    ARRAY_AGG(mounts.mount_container_path ORDER BY mounts.mount_id) AS mount_container_path,
+                    ARRAY_AGG(mounts.mount_host_path ORDER BY mounts.mount_id) AS mount_host_path
+                FROM aesterisk.mounts
+                JOIN aesterisk.tag_mounts ON mounts.mount_id = tag_mounts.mount_id
+                GROUP BY tag_mounts.tag_id
+            ),
+            env_defs_cte AS (
+                SELECT
+                    tag_env_defs.tag_id,
+                    ARRAY_AGG(env_defs.env_def_key ORDER BY env_defs.env_def_id) AS env_def_key,
+                    ARRAY_AGG(env_defs.env_def_required ORDER BY env_defs.env_def_id) AS env_def_required,
+                    ARRAY_AGG(env_defs.env_def_type ORDER BY env_defs.env_def_id) AS env_def_type,
+                    ARRAY_AGG(env_defs.env_def_default_value ORDER BY env_defs.env_def_id) AS env_def_default_value,
+                    ARRAY_AGG(env_defs.env_def_regex ORDER BY env_defs.env_def_id) AS env_def_regex,
+                    ARRAY_AGG(env_defs.env_def_min ORDER BY env_defs.env_def_id) AS env_def_min,
+                    ARRAY_AGG(env_defs.env_def_max ORDER BY env_defs.env_def_id) AS env_def_max,
+                    ARRAY_AGG(env_defs.env_def_trim ORDER BY env_defs.env_def_id) AS env_def_trim
+                FROM aesterisk.env_defs
+                JOIN aesterisk.tag_env_defs ON env_defs.env_def_id = tag_env_defs.env_def_id
+                GROUP BY tag_env_defs.tag_id
+            ),
+            envs_cte AS (
+                SELECT
+                    server_envs.server_id,
+                    ARRAY_AGG(envs.env_key ORDER BY envs.env_id) AS env_key,
+                    ARRAY_AGG(envs.env_value ORDER BY envs.env_id) AS env_value
+                FROM aesterisk.envs
+                JOIN aesterisk.server_envs ON envs.env_id = server_envs.env_id
+                GROUP BY server_envs.server_id
+            ),
+            networks_cte AS (
+                SELECT
+                    server_networks.server_id,
+                    ARRAY_AGG(server_networks.network_id ORDER BY server_networks.network_id) AS network_id,
+                    ARRAY_AGG(server_networks.local_ip ORDER BY server_networks.network_id) AS network_local_ip
+                FROM aesterisk.server_networks
+                GROUP BY server_networks.server_id
+            ),
+            ports_cte AS (
+                SELECT
+                    server_ports.server_id,
+                    ARRAY_AGG(ports.port_port ORDER BY ports.port_id) AS port_port,
+                    ARRAY_AGG(ports.port_protocol ORDER BY ports.port_id) AS port_protocol,
+                    ARRAY_AGG(ports.port_mapped ORDER BY ports.port_id) AS port_mapped
+                FROM aesterisk.ports
+                JOIN aesterisk.server_ports ON ports.port_id = server_ports.port_id
+                GROUP BY server_ports.server_id
+            )
+            SELECT
+                servers.server_id,
+                tags.tag_image,
+                tags.tag_docker_tags,
+                tags.tag_healthcheck_test,
+                tags.tag_healthcheck_interval,
+                tags.tag_healthcheck_timeout,
+                tags.tag_healthcheck_retries,
+                mounts_cte.mount_container_path,
+                mounts_cte.mount_host_path,
+                env_defs_cte.env_def_key,
+                env_defs_cte.env_def_required,
+                env_defs_cte.env_def_type,
+                env_defs_cte.env_def_default_value AS "env_def_default_value: _",
+                env_defs_cte.env_def_regex AS "env_def_regex: _",
+                env_defs_cte.env_def_min AS "env_def_min: _",
+                env_defs_cte.env_def_max AS "env_def_max: _",
+                env_defs_cte.env_def_trim,
+                envs_cte.env_key,
+                envs_cte.env_value,
+                networks_cte.network_id,
+                networks_cte.network_local_ip,
+                ports_cte.port_port,
+                ports_cte.port_protocol,
+                ports_cte.port_mapped
+            FROM aesterisk.nodes
+            LEFT JOIN aesterisk.node_servers ON nodes.node_id = node_servers.node_id
+            LEFT JOIN aesterisk.servers ON node_servers.server_id = servers.server_id
+            LEFT JOIN aesterisk.tags ON servers.server_tag = tags.tag_id
+            LEFT JOIN mounts_cte ON servers.server_tag = mounts_cte.tag_id
+            LEFT JOIN env_defs_cte ON servers.server_tag = env_defs_cte.tag_id
+            LEFT JOIN envs_cte ON servers.server_id = envs_cte.server_id
+            LEFT JOIN networks_cte ON servers.server_id = networks_cte.server_id
+            LEFT JOIN ports_cte ON servers.server_id = ports_cte.server_id
+            WHERE nodes.node_uuid = $1;
+        "#, uuid).fetch_all(db::get()?).await.map_err(|e| format!("Failed to fetch server data: {}", e))?;
+
+        let servers = servers.into_iter().map(|s| Server {
+            id: s.server_id as u32,
+            tag: Tag {
+                image: s.tag_image,
+                docker_tag: s.tag_docker_tags,
+                healthcheck: Healthcheck {
+                    test: s.tag_healthcheck_test,
+                    interval: s.tag_healthcheck_interval as u64,
+                    timeout: s.tag_healthcheck_timeout as u64,
+                    retries: s.tag_healthcheck_retries as u64,
+                },
+                mounts: s.mount_container_path.unwrap_or_default().into_iter().zip(s.mount_host_path.unwrap_or_default()).map(|(container_path, host_path)| Mount {
+                    container_path,
+                    host_path,
+                }).collect(),
+                env_defs: s.env_def_key.unwrap_or_default().into_iter()
+                    .zip(s.env_def_required.unwrap_or_default())
+                    .zip(s.env_def_type.unwrap_or_default())
+                    .zip(s.env_def_default_value.unwrap_or_default())
+                    .zip(s.env_def_regex.unwrap_or_default())
+                    .zip(s.env_def_min.unwrap_or_default())
+                    .zip(s.env_def_max.unwrap_or_default())
+                    .zip(s.env_def_trim.unwrap_or_default())
+                    .map(|(((((((key, required), env_type), default), regex), min), max), trim)| EnvDef {
+                        key,
+                        required,
+                        env_type: EnvType::from(env_type as u8),
+                        default,
+                        regex,
+                        min: min.map(|min| min as i64),
+                        max: max.map(|max| max as i64),
+                        trim,
+                    })
+                    .collect(),
+            },
+            envs: s.env_key.unwrap_or_default().into_iter().zip(s.env_value.unwrap_or_default()).map(|(key, value)| Env {
+                key,
+                value,
+            }).collect(),
+            networks: s.network_id.unwrap_or_default().into_iter().zip(s.network_local_ip.unwrap_or_default()).map(|(network, ip)| ServerNetwork {
+                network: network as u32,
+                ip: ip as u8,
+            }).collect(),
+            ports: s.port_port.unwrap_or_default().into_iter().zip(s.port_mapped.unwrap_or_default()).zip(s.port_protocol.unwrap_or_default()).map(|((port, mapped), protocol)| Port {
+                port: port as u16,
+                mapped: mapped as u16,
+                protocol: Protocol::from(protocol as u8),
+            }).collect(),
+        }).collect();
+
         let sync = SDSyncPacket {
             networks: networks.into_iter().map(|nw| Network {
                 id: nw.network_id as u32,
-                name: nw.network_name,
                 subnet: nw.network_local_ip as u8,
             }).collect(),
+            servers,
         };
 
         let client = self.daemon_channel_map.get(&addr).ok_or("Client not found in channel_map")?;
