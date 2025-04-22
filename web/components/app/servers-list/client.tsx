@@ -85,6 +85,11 @@ export default function Client({ nodes, servers, teamID }: {
 		socketBus.emit(ID.WSSync, node.uuid);
 	}, [teamID, nodes]);
 
+	const onSelect = useCallback((id: string) => {
+		form.setValue("node", parseInt(id, 10));
+		setNodeSelectOpen(false);
+	}, [form]);
+
 	const renderNameField = useCallback(({ field }: {
 		field: ControllerRenderProps<{
 			name: string;
@@ -155,12 +160,7 @@ export default function Client({ nodes, servers, teamID }: {
 											<CommandItem
 												key={node.id}
 												value={node.id.toString()}
-												onSelect={
-													() => {
-														field.onChange(node.id);
-														setNodeSelectOpen(false);
-													}
-												}
+												onSelect={onSelect}
 											>
 												{ node.name }
 												<Check className={cn("ml-auto", field.value === node.id ? "opacity-100" : "opacity-0")} />
