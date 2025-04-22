@@ -140,6 +140,7 @@ export default function Client({ nodes, servers, teamID }: {
 			node: number;
 		}, "node">;
 	}) => (
+		// skipcq: JS-0415
 		<FormItem className="flex flex-col">
 			<FormLabel>{ "Node" }</FormLabel>
 			<FormControl>
