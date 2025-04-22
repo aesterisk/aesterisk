@@ -1,17 +1,15 @@
 use std::{collections::HashMap, fs::create_dir_all};
-use bollard::{container::{Config, CreateContainerOptions, ListContainersOptions, NetworkingConfig, RemoveContainerOptions, RestartContainerOptions, StartContainerOptions, StopContainerOptions}, image::CreateImageOptions, secret::{ContainerSummary, EndpointIpamConfig, EndpointSettings, HealthConfig, HostConfig, Mount, MountBindOptions, MountTypeEnum, PortBinding, RestartPolicy, RestartPolicyNameEnum}};
+use bollard::{container::{Config, CreateContainerOptions, ListContainersOptions, NetworkingConfig, RemoveContainerOptions, RestartContainerOptions, StartContainerOptions, StopContainerOptions}, image::CreateImageOptions, secret::{ContainerSummary, EndpointIpamConfig, EndpointSettings, HealthConfig, HostConfig, MountBindOptions, MountTypeEnum, PortBinding, RestartPolicy, RestartPolicyNameEnum}};
 use camino::{Utf8Component, Utf8Path, Utf8PathBuf};
 use futures_util::StreamExt;
-use packet::server_daemon::sync::{EnvType, Server};
+use packet::server_daemon::sync::{Env, EnvDef, EnvType, Mount, Server, ServerNetwork};
 use regex::Regex;
 use tracing::debug;
 
 use crate::{config, docker::{self, network}};
 
-pub async fn create_server(server: Server) -> Result<String, String> {
-    let envs = server.envs.into_iter().map(|e| (e.key.clone(), e)).collect::<HashMap<_, _>>();
-
-    for env_def in server.tag.env_defs.into_iter() {
+fn validate_env_defs(envs: &HashMap<String, Env>, env_defs: Vec<EnvDef>) -> Result<(), String> {
+    for env_def in env_defs.into_iter() {
         let exists = envs.contains_key(&env_def.key) && !envs.get(&env_def.key).ok_or("env should exist")?.value.is_empty();
 
         if env_def.required && !exists {
@@ -72,28 +70,20 @@ pub async fn create_server(server: Server) -> Result<String, String> {
         }
     }
 
-    let create_container_options = CreateContainerOptions {
-        name: format!("ae_sv_{}", server.id),
-        ..Default::default()
-    };
+    Ok(())
+}
 
-    let nicc = if server.networks.is_empty() {
-        debug!("Obtaining or creating NICC network");
-        Some(network::get_nicc().await?)
-    } else {
-        None
-    };
-
-    let mounts = if !server.tag.mounts.is_empty() {
+fn validate_mounts(server_id: u32, mounts: Vec<Mount>) -> Result<Option<Vec<bollard::models::Mount>>, String> {
+    if !mounts.is_empty() {
         debug!("Validating mounts...");
 
-        let server_data = format!("{}/{}/", config::get()?.daemon.data_folder, server.id);
+        let server_data = format!("{}/{}/", config::get()?.daemon.data_folder, server_id);
         let data_path = Utf8Path::new(&server_data);
 
         create_dir_all(data_path).map_err(|e| format!("Could not create data directory: {}", e))?;
         debug!("Data directory created: '{}'", data_path);
 
-        let mounts = server.tag.mounts.into_iter().filter_map(|mount| {
+        let mounts = mounts.into_iter().filter_map(|mount| {
             debug!("Validating mount host path: '{}'...", mount.host_path);
             let unsafe_path = Utf8Path::new(&mount.host_path);
             let safe_path = unsafe_path.strip_prefix("/").unwrap_or(unsafe_path);
@@ -118,7 +108,7 @@ pub async fn create_server(server: Server) -> Result<String, String> {
 
             if path.starts_with(data_path) {
                 debug!("Mount validated successfully");
-                Some(Mount {
+                Some(bollard::models::Mount {
                     target: Some(mount.container_path),
                     source: Some(path.into_string()),
                     typ: Some(MountTypeEnum::BIND),
@@ -136,14 +126,16 @@ pub async fn create_server(server: Server) -> Result<String, String> {
 
         debug!("Mounts validated");
 
-        Some(mounts)
+        Ok(Some(mounts))
     } else {
-        None
-    };
+        Ok(None)
+    }
+}
 
+async fn pull_image(image: &str, tag: &str) -> Result<(), String> {
     match super::get()?.create_image(Some(CreateImageOptions {
-        from_image: server.tag.image.clone(),
-        tag: server.tag.docker_tag.clone(),
+        from_image: image,
+        tag,
         ..Default::default()
     }), None, None).collect::<Vec<_>>().await.into_iter().reduce(|a, b| a.and(b)) {
         None => (),
@@ -152,16 +144,25 @@ pub async fn create_server(server: Server) -> Result<String, String> {
         }
     }
 
-    debug!("Creating container...");
+    Ok(())
+}
 
-    let endpoints_config: Result<HashMap<_, _>, String> = if let Some(id) = nicc {
+async fn get_endpoint_config(networks: Vec<ServerNetwork>) -> Result<HashMap<String, EndpointSettings>, String> {
+    let nicc = if networks.is_empty() {
+        debug!("Obtaining or creating NICC network");
+        Some(network::get_nicc().await?)
+    } else {
+        None
+    };
+
+    if let Some(id) = nicc {
         Ok(HashMap::from([
             (id, EndpointSettings::default())
         ]))
     } else {
         let subnets = docker::network::get_networks().await?.into_iter().map(|nw| (nw.id, nw.subnet)).collect::<HashMap<_, _>>();
 
-        let networks = server.networks.into_iter().map(|nw| Ok((format!("ae_nw_{}", nw.network), EndpointSettings {
+        let networks = networks.into_iter().map(|nw| Ok((format!("ae_nw_{}", nw.network), EndpointSettings {
             ipam_config: Some(EndpointIpamConfig {
                 ipv4_address: Some(format!("10.133.{}.{}", subnets.get(&nw.network).ok_or("network not found")?, nw.ip)),
                 ..Default::default()
@@ -170,9 +171,26 @@ pub async fn create_server(server: Server) -> Result<String, String> {
         }))).collect::<Result<Vec<_>, String>>()?;
 
         Ok(networks.into_iter().collect::<HashMap<_, _>>())
+    }
+}
+
+pub async fn create_server(server: Server) -> Result<String, String> {
+    let envs = server.envs.into_iter().map(|e| (e.key.clone(), e)).collect::<HashMap<_, _>>();
+
+    validate_env_defs(&envs, server.tag.env_defs).map_err(|e| format!("Failed to validate env defs: {}", e))?;
+
+    let create_container_options = CreateContainerOptions {
+        name: format!("ae_sv_{}", server.id),
+        ..Default::default()
     };
 
-    let endpoints_config = endpoints_config?;
+    let mounts = validate_mounts(server.id, server.tag.mounts).map_err(|e| format!("Failed to validate mounts: {}", e))?;
+
+    pull_image(&server.tag.image, &server.tag.docker_tag).await.map_err(|e| format!("Failed to pull image: {}", e))?;
+
+    debug!("Creating container...");
+
+    let endpoints_config = get_endpoint_config(server.networks).await.map_err(|e| format!("Failed to get endpoint config: {}", e))?;
 
     let container_config = Config {
         hostname: Some(format!("ae_sv_{}", server.id)),
