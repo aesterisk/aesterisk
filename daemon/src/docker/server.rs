@@ -12,62 +12,75 @@ fn validate_env_defs(envs: &HashMap<String, Env>, env_defs: Vec<EnvDef>) -> Resu
     for env_def in env_defs.into_iter() {
         let exists = envs.contains_key(&env_def.key) && !envs.get(&env_def.key).ok_or("env should exist")?.value.is_empty();
 
-        if env_def.required && !exists {
-            return Err(format!("Missing required env: {}", env_def.key));
+        if !exists {
+            return if env_def.required {
+                Err(format!("Missing required env: {}", env_def.key))
+            } else {
+                Ok(())
+            }
         }
 
-        if exists {
-            let env = envs.get(&env_def.key).ok_or("env should exist")?;
+        let env = envs.get(&env_def.key).ok_or("env should exist")?;
 
-            match env_def.env_type {
-                EnvType::Boolean => {
-                    if env.value != "1" && env.value != "0" {
-                        return Err(format!("Invalid value for {}: '{}' is not a boolean value", env_def.key, env.value));
-                    }
-                },
-                EnvType::Number => {
-                    let parsed = env.value.parse::<i64>();
-                    match parsed {
-                        Ok(num) => {
-                            if env_def.min.is_some() && num < env_def.min.ok_or("env should have min")? {
+        match env_def.env_type {
+            EnvType::Boolean => {
+                if env.value != "1" && env.value != "0" {
+                    return Err(format!("Invalid value for {}: '{}' is not a boolean value", env_def.key, env.value));
+                }
+            },
+            EnvType::Number => {
+                let parsed = env.value.parse::<i64>();
+                match parsed {
+                    Ok(num) => {
+                        // TODO: use `let_chains` when Rust 1.87.0 (most likely) is released
+                        // (as of now, the `let_chains` feature was literally merged 4 hours ago...
+                        //  what's the odds of that??)
+                        if let Some(min) = env_def.min {
+                            if num < min {
                                 return Err(format!("Invalid value for {}: '{}' is below the minimum value", env_def.key, env.value));
                             }
+                        }
 
-                            if env_def.max.is_some() && num > env_def.max.ok_or("env should have max")? {
+                        if let Some(max) = env_def.max {
+                            if num > max {
                                 return Err(format!("Invalid value for {}: '{}' is above the maximum value", env_def.key, env.value));
                             }
-                        },
-                        Err(_) => {
-                            return Err(format!("Invalid value for {}: '{}' is not a number", env_def.key, env.value));
                         }
-                    };
-                },
-                EnvType::String => {
-                    let value = if env_def.trim {
-                        env.value.trim()
-                    } else {
-                        &env.value
-                    };
-
-                    if env_def.regex.is_some() {
-                        let re = Regex::new(env_def.regex.as_ref().ok_or("env should have regex")?).map_err(|_| "invalid regex")?;
-                        if !re.is_match(value) {
-                            return Err(format!("Invalid value for {}: '{}' does not match regex", env_def.key, env.value));
-                        }
+                    },
+                    Err(_) => {
+                        return Err(format!("Invalid value for {}: '{}' is not a number", env_def.key, env.value));
                     }
+                };
+            },
+            EnvType::String => {
+                let value = if env_def.trim {
+                    env.value.trim()
+                } else {
+                    &env.value
+                };
 
-                    let len = value.len();
+                if let Some(regex) = env_def.regex.as_ref() {
+                    let re = Regex::new(regex).map_err(|e| format!("invalid regex: {}", e))?;
+                    if !re.is_match(value) {
+                        return Err(format!("Invalid value for {}: '{}' does not match regex", env_def.key, env.value));
+                    }
+                }
 
-                    if env_def.min.is_some() && len < env_def.min.ok_or("env should have min")? as usize {
+                let len = value.len();
+
+                if let Some(min) = env_def.min {
+                    if len < min as usize {
                         return Err(format!("Invalid value for {}: '{}' is below the minimum length", env_def.key, env.value));
                     }
+                }
 
-                    if env_def.max.is_some() && len > env_def.max.ok_or("env should have max")? as usize {
+                if let Some(max) = env_def.max {
+                    if len > max as usize {
                         return Err(format!("Invalid value for {}: '{}' is above the maximum length", env_def.key, env.value));
                     }
                 }
-            };
-        }
+            }
+        };
     }
 
     Ok(())
