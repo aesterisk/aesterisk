@@ -149,7 +149,7 @@ export const columns: ColumnDef<ServerData>[] = [
 	},
 	{
 		id: "actions",
-		cell: ({ row }) => (
+		cell: () => (
 			// todo: link to /dash/[teamID]/servers/[serverID]
 			<Button size="sm" variant="outline">{ "Manage" }</Button>
 		),
