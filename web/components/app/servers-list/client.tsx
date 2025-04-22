@@ -4,7 +4,7 @@ import { useCallback, useMemo, useState } from "react";
 import { ServerData } from ".";
 import { z } from "zod";
 import { Node } from "@/types/node";
-import { useForm } from "react-hook-form";
+import { ControllerRenderProps, useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { socketBus } from "@/buses/socket";
 import { ID } from "@/packets/packet";
@@ -85,6 +85,98 @@ export default function Client({ nodes, servers, teamID }: {
 		socketBus.emit(ID.WSSync, node.uuid);
 	}, [teamID, nodes]);
 
+	const renderNameField = useCallback(({ field }: {
+		field: ControllerRenderProps<{
+			name: string;
+			tag: number;
+			node: number;
+		}, "name">;
+	}) => (
+		<FormItem>
+			<FormLabel>{ "Server Name" }</FormLabel>
+			<FormControl>
+				<Input
+					placeholder={randomPlaceholder}
+					{...field}
+				/>
+			</FormControl>
+			<FormMessage />
+		</FormItem>
+	), [randomPlaceholder]);
+
+	const renderTagField = useCallback(({ field }: {
+		field: ControllerRenderProps<{
+			name: string;
+			tag: number;
+			node: number;
+		}, "tag">;
+	}) => (
+		<FormItem>
+			<FormLabel>{ "Tag" }</FormLabel>
+			<FormControl className="block">
+				<Input
+					placeholder="123"
+					type="number"
+					className="w-20 h-8"
+					min={1}
+					{...field}
+				/>
+			</FormControl>
+			<FormMessage />
+		</FormItem>
+	), []);
+
+	const renderNodeField = useCallback(({ field }: {
+		field: ControllerRenderProps<{
+			name: string;
+			tag: number;
+			node: number;
+		}, "node">;
+	}) => (
+		<FormItem className="flex flex-col">
+			<FormLabel>{ "Node" }</FormLabel>
+			<FormControl>
+				<Popover open={nodeSelectOpen} onOpenChange={setNodeSelectOpen}>
+					<PopoverTrigger asChild>
+						<Button variant="outline" role="combobox" aria-expanded={nodeSelectOpen} className="w-[200px] justify-between" ref={field.ref} disabled={field.disabled}>
+							{ /* todo: add status indicator for node */ }
+							{ nodes.find((n) => n.id === field.value)?.name }
+							<ChevronsUpDown className="opacity-50" />
+						</Button>
+					</PopoverTrigger>
+					<PopoverContent className="w-[200px] p-0">
+						<Command>
+							<CommandInput placeholder="Search node..." />
+							<CommandList>
+								<CommandEmpty>{ "No nodes found." }</CommandEmpty>
+								<CommandGroup>
+									{
+										nodes.map((node) => (
+											<CommandItem
+												key={node.id}
+												value={node.id.toString()}
+												onSelect={
+													() => {
+														field.onChange(node.id);
+														setNodeSelectOpen(false);
+													}
+												}
+											>
+												{ node.name }
+												<Check className={cn("ml-auto", field.value === node.id ? "opacity-100" : "opacity-0")} />
+											</CommandItem>
+										))
+									}
+								</CommandGroup>
+							</CommandList>
+						</Command>
+					</PopoverContent>
+				</Popover>
+			</FormControl>
+			<FormMessage />
+		</FormItem>
+	), [nodeSelectOpen, nodes]);
+
 	return (
 		<DataList
 			columns={columns}
@@ -108,91 +200,17 @@ export default function Client({ nodes, servers, teamID }: {
 					<FormField
 						control={form.control}
 						name="name"
-						render={
-							({ field }) => (
-								<FormItem>
-									<FormLabel>{ "Server Name" }</FormLabel>
-									<FormControl>
-										<Input
-											placeholder={randomPlaceholder}
-											{...field}
-										/>
-									</FormControl>
-									<FormMessage />
-								</FormItem>
-							)
-						}
+						render={renderNameField}
 					/>
 					<FormField
 						control={form.control}
 						name="tag"
-						render={
-							({ field }) => (
-								<FormItem>
-									<FormLabel>{ "Tag" }</FormLabel>
-									<FormControl className="block">
-										<Input
-											placeholder="123"
-											type="number"
-											className="w-20 h-8"
-											min={1}
-											{...field}
-										/>
-									</FormControl>
-									<FormMessage />
-								</FormItem>
-							)
-						}
+						render={renderTagField}
 					/>
 					<FormField
 						control={form.control}
 						name="node"
-						render={
-							({ field }) => (
-								<FormItem className="flex flex-col">
-									<FormLabel>{ "Node" }</FormLabel>
-									<FormControl>
-										<Popover open={nodeSelectOpen} onOpenChange={setNodeSelectOpen}>
-											<PopoverTrigger asChild>
-												<Button variant="outline" role="combobox" aria-expanded={nodeSelectOpen} className="w-[200px] justify-between" ref={field.ref} disabled={field.disabled}>
-													{ /* todo: add status indicator for node */ }
-													{ nodes.find((n) => n.id === field.value)?.name }
-													<ChevronsUpDown className="opacity-50" />
-												</Button>
-											</PopoverTrigger>
-											<PopoverContent className="w-[200px] p-0">
-												<Command>
-													<CommandInput placeholder="Search node..." />
-													<CommandList>
-														<CommandEmpty>{ "No nodes found." }</CommandEmpty>
-														<CommandGroup>
-															{
-																nodes.map((node) => (
-																	<CommandItem
-																		key={node.id}
-																		value={node.id.toString()}
-																		onSelect={
-																			() => {
-																				field.onChange(node.id);
-																				setNodeSelectOpen(false);
-																			}
-																		}
-																	>
-																		{ node.name }
-																		<Check className={cn("ml-auto", field.value === node.id ? "opacity-100" : "opacity-0")} />
-																	</CommandItem>
-																))
-															}
-														</CommandGroup>
-													</CommandList>
-												</Command>
-											</PopoverContent>
-										</Popover>
-									</FormControl>
-									<FormMessage />
-								</FormItem>
-							)
-						}
+						render={renderNodeField}
 					/>
 					{
 						form.formState.isValid
@@ -202,7 +220,7 @@ export default function Client({ nodes, servers, teamID }: {
 								</DialogClose>
 							)
 							: (
-								<Button type="submit">{ "Create" }</Button>
+								<Button type="button" disabled>{ "Create" }</Button>
 							)
 					}
 				</form>
