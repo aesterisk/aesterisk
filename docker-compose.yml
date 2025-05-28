@@ -24,7 +24,7 @@ services:
 #      postgres:
 #        condition: service_healthy
   neon:
-    image: aesterisk-neon-proxy
+    image: ghcr.io/aesterisk/neon-proxy
     environment:
       - PG_CONNECTION_STRING=postgresql://postgres:password@postgres:5432/postgres
     ports:
