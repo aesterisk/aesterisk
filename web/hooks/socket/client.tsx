@@ -160,6 +160,7 @@ export const SocketProvider = ({ children, userID, publicKey, privateKey }: Para
 					description: "Could not connect to Aesterisk's Servers. Please try again later.",
 					duration: Infinity,
 					id: "socket-failed-to-connect",
+					dismissible: false,
 					action: {
 						label: "Retry",
 						onClick: () => {
