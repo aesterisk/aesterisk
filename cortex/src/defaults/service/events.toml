@@ -1,0 +1,27 @@
+[[produces]]
+name = "TestCreated"
+type = "Test"
+
+[[produces]]
+name = "TestStatusChanged"
+type = "TestStatusChangedPayload"
+
+[[consumes]]
+event = "UserCreated"
+from = "user-service"
+
+[[types]]
+name = "TestStatusChangedPayload"
+kind = "struct"
+
+[[types.fields]]
+name = "id"
+type = "TestID"
+
+[[types.fields]]
+name = "old_status"
+type = "TestStatus"
+
+[[types.fields]]
+name = "new_status"
+type = "TestStatus"

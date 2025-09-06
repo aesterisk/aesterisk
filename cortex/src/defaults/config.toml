@@ -1,0 +1,8 @@
+[paths]
+api = "api"
+services = "services"
+clients = "clients"
+
+[paths.specs]
+api = "specs/api"
+services = "specs/services"

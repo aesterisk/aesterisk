@@ -1,0 +1,12 @@
+[workspace]
+resolver = "3"
+members = [
+	"cortex",
+	"framework",
+
+#	"clients/*",
+#	"services/*",
+]
+
+[workspace.package]
+repository = "https://github.com/aesterisk/aesterisk"

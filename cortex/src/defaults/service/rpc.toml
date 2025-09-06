@@ -1,0 +1,25 @@
+[[rpc]]
+name = "CreateTest"
+request = "CreateTestRequest"
+response = "Test"
+
+[[rpc]]
+name = "GetTest"
+request = "GetTestRequest"
+response = "Test"
+
+[[types]]
+name = "CreateTestRequest"
+kind = "struct"
+
+[[types.fields]]
+name = "name"
+type = "string"
+
+[[types]]
+name = "GetTestRequest"
+kind = "struct"
+
+[[types.fields]]
+name = "id"
+type = "TestID"

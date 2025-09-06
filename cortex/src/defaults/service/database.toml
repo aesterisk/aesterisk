@@ -1,0 +1,52 @@
+[[tables]]
+name = "tests"
+desc = "Table for storing test records"
+primary-key = "id" # can be a composite key with `primary-key = ["a", "b"]`
+
+[[tables.columns]]
+name = "id"
+type = "TestID" # type aliases work for basic types (not structs, arrays, or enums of non-basic types)
+
+[[tables.columns]]
+name = "name"
+type = "Test.name" # struct fields can be referenced as long as the field is a basic type
+unique = true
+
+[[tables.columns]]
+name = "status"
+type = "TestStatus" # enums gets converted to a string, and a check is made to ensure only enum variants are used
+desc = "The current status of the test"
+
+[[tables.columns]]
+name = "created_at"
+type = "timestamp"
+default = '''CURRENT_TIMESTAMP()''' # sql default
+
+[[tables.columns]]
+name = "other_timestamp"
+type = "timestamp"
+default = 1979-05-27T07:32:00Z # (offset) datetime default
+
+[[tables.columns]]
+name = "some_number"
+type = "i32"
+default = 42 # integer default
+
+[[tables.columns]]
+name = "some_str"
+type = "string"
+default = "hello" # string default
+
+[[tables.columns]]
+name = "some_str"
+type = "bool"
+default = false # bool default
+
+[[tables.columns]]
+name = "some_float"
+type = "f64"
+default = 3.141592653589793 # float default
+
+[[tables.columns]]
+name = "description"
+type = "string"

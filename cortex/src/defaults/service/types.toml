@@ -1,0 +1,45 @@
+[[types]]
+name = "TestID"
+kind = "u32"
+desc = "A test ID for the service"
+
+[[types]]
+name = "TestStatus"
+kind = "enum"
+
+[[types.variants]]
+value = "Pending"
+desc = "The test is pending"
+
+[[types.variants]]
+value = "Running"
+desc = "The test is currently running"
+
+[[types.variants]]
+value = "Completed"
+desc = "The test has completed"
+
+[[types.variants]]
+value = "Failed"
+desc = "The test has failed"
+
+[[types]]
+name = "Test"
+kind = "struct"
+
+[[types.fields]]
+name = "id"
+type = "TestID"
+
+[[types.fields]]
+name = "name"
+type = "string"
+desc = "The name of the test"
+
+[[types.fields]]
+name = "status"
+type = "TestStatus"
+
+[[types.fields]]
+name = "created_at"
+type = "timestamp"
