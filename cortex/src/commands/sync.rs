@@ -1,4 +1,4 @@
-use std::fs;
+use std::{fs, path::Path};
 
 use anyhow::anyhow;
 use toml_edit::DocumentMut;
@@ -19,7 +19,7 @@ pub fn run() -> anyhow::Result<()> {
 fn sync_service_specs(config: &config::Config) -> anyhow::Result<()> {
     println!("Checking git repository status...");
 
-    if true || utils::is_git_repo_clean()? {
+    if utils::is_git_repo_clean()? {
         println!("  Repository is clean.");
     } else {
         return Err(anyhow!(
@@ -73,7 +73,7 @@ fn sync_service_specs(config: &config::Config) -> anyhow::Result<()> {
         println!("  Specification is valid.");
 
         println!("  Computing hash...");
-        let hash = utils::dir_hash(&spec_path)?;
+        let spec_hash = utils::dir_hash(&spec_path)?;
 
         println!("  Checking if service exists...");
         let service_name = spec_path
@@ -96,13 +96,13 @@ fn sync_service_specs(config: &config::Config) -> anyhow::Result<()> {
                 anyhow!("No `package.metadata.cortex.spec_commit` in service Cargo.toml")
             })?;
 
-            if existing_hash == hash {
-                println!("  Specification hash matches ({}). No update needed.", hash);
+            if existing_hash == spec_hash {
+                println!("  Specification hash matches ({}). No update needed.", spec_hash);
                 continue;
             } else {
                 println!(
                     "  Specification hash mismatch (existing: {}, new: {})!",
-                    existing_hash, hash
+                    existing_hash, spec_hash
                 );
             }
 
@@ -143,6 +143,30 @@ fn sync_service_specs(config: &config::Config) -> anyhow::Result<()> {
             );
 
             // TODO: create new service, commit, set spec and commit hash, and commit again
+            create_service(&service_path, spec)?;
+            println!("  Created service, committing files...");
+
+            println!();
+            let commit_hash = utils::commit_all(&format!("cortex: create service `{}`", service_name.to_string_lossy()))?;
+            println!();
+
+            println!("  Committed files, writing hashes...");
+            let mut cargo_config = fs::read_to_string(&cargo_toml_path)?.parse::<DocumentMut>()?;
+
+            cargo_config["package"]["metadata"]["cortex"]["spec_hash"] = toml_edit::value(spec_hash);
+            cargo_config["package"]["metadata"]["cortex"]["spec_commit"] = toml_edit::value(commit_hash);
+
+            fs::write(&cargo_toml_path, cargo_config.to_string())?;
+
+            println!("  Wrote hashes to Cargo.toml, committing changes...");
+
+            println!();
+            utils::commit_all(&format!("cortex: write hashes for service `{}`", service_name.to_string_lossy()))?;
+            println!();
+
+            println!("  Committed hash changes.");
+
+            println!("  Service '{}' created successfully. Keep shipping 🚀", service_name.to_string_lossy());
         }
     }
 
@@ -415,4 +439,18 @@ fn compute_spec_changes(last_spec: Spec, new_spec: Spec) -> anyhow::Result<SpecC
     }
 
     Ok(change)
+}
+
+const DEFAULT_CARGO_TOML: &str = include_str!("../defaults/service_src/Cargo.toml");
+
+fn create_service(path: &Path, spec: Spec) -> anyhow::Result<()> {
+    fs::create_dir_all(path)?;
+
+    let cargo_toml_path = path.join("Cargo.toml");
+    fs::write(cargo_toml_path, DEFAULT_CARGO_TOML)?;
+
+    let src_path = path.join("src");
+    fs::create_dir(src_path)?;
+
+    Ok(())
 }

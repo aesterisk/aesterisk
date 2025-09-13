@@ -25,10 +25,10 @@ pub fn run(name: String, is_api: bool) {
     }
 }
 
-const DEFAULT_SERVICE_TYPES_SPEC: &str = include_str!("../defaults/service/types.toml");
-const DEFAULT_SERVICE_RPC_SPEC: &str = include_str!("../defaults/service/rpc.toml");
-const DEFAULT_SERVICE_EVENTS_SPEC: &str = include_str!("../defaults/service/events.toml");
-const DEFAULT_SERVICE_DATABASE_SPEC: &str = include_str!("../defaults/service/database.toml");
+const DEFAULT_SERVICE_TYPES_SPEC: &str = include_str!("../defaults/service_spec/types.toml");
+const DEFAULT_SERVICE_RPC_SPEC: &str = include_str!("../defaults/service_spec/rpc.toml");
+const DEFAULT_SERVICE_EVENTS_SPEC: &str = include_str!("../defaults/service_spec/events.toml");
+const DEFAULT_SERVICE_DATABASE_SPEC: &str = include_str!("../defaults/service_spec/database.toml");
 
 fn new_service_spec(name: String, mut path: PathBuf) {
     path.push(name);

@@ -1,4 +1,4 @@
-use std::{fs, io, path::Path};
+use std::{fs, io, path::Path, process::Command};
 
 use anyhow::anyhow;
 use git2::{ObjectType, Oid, Repository, StatusOptions, TreeWalkMode, TreeWalkResult};
@@ -65,4 +65,32 @@ pub fn dir_hash(path: &Path) -> io::Result<String> {
     }
 
     Ok(format!("{:x}", hasher.finalize()))
+}
+
+pub fn commit_all(message: &str) -> anyhow::Result<String> {
+    let status = Command::new("git")
+        .args(["add", "--all"])
+        .status()?;
+
+    if !status.success() {
+        anyhow::bail!("Failed to add changes to git");
+    }
+
+    let status = Command::new("git")
+        .args(["commit", "-m", message])
+        .status()?;
+
+    if !status.success() {
+        anyhow::bail!("Failed to commit changes to git");
+    }
+
+    let output = Command::new("git")
+        .args(["rev-parse", "HEAD"])
+        .output()?;
+
+    if !output.status.success() {
+        anyhow::bail!("Failed to get latest commit hash");
+    }
+
+    Ok(String::from_utf8(output.stdout.into_iter().take(40).collect::<Vec<_>>())?)
 }
